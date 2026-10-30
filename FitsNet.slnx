@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/FitsNet.Benchmarks.Tables/FitsNet.Benchmarks.Tables.csproj" />
+    <Project Path="benchmarks/FitsNet.Benchmarks/FitsNet.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/FitsNet/FitsNet.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FitsNet.Tests/FitsNet.Tests.csproj" />
+  </Folder>
+</Solution>
