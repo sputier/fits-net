@@ -20,6 +20,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
     internal CompressedImageHdu(FitsHeader header, DataSource source) : base(header, source) { }
 
     /// <summary>Whether a binary table header describes a tile-compressed image.</summary>
+    /// <param name="header">The header of a binary table extension.</param>
     public static bool IsCompressedImage(FitsHeader header) => header.TryGetValue("ZIMAGE", out bool z) && z;
 
     // ---- Parameters ----------------------------------------------------------------------------------------------
@@ -411,36 +412,55 @@ public sealed class CompressedImageHdu : BinaryTableHdu
 
     private const string EditMessage = "A compressed image cannot be edited as a table: call Decompress(), edit the image and Compress() it again.";
 
-    /// <inheritdoc cref="TableHdu.SetColumns"/>
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="columns">The columns that would replace the table.</param>
     public override void SetColumns(IReadOnlyList<TableColumn> columns) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="column">The column to add; its data must have one entry for each row of the table.</param>
     public override void AddColumn(TableColumn column) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public override void RemoveColumn(int index) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="start">The zero-based index of the first row to remove.</param>
+    /// <param name="count">The number of rows to remove.</param>
     public override void RemoveRows(long start, long count) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="rows">One column of data for each column of the table, in the same order, holding the rows to add.</param>
     public override void AppendRows(IReadOnlyList<TableColumn> rows) => throw new NotSupportedException(EditMessage);
 
     /// <summary>Not available: use <see cref="Create{T}"/> or <see cref="Compress"/> to build a compressed image.</summary>
+    /// <param name="columns">The columns, each with its data; they must all have the same number of rows.</param>
     public static new BinaryTableHdu Create(IReadOnlyList<TableColumn> columns) => throw new NotSupportedException(
         "Use CompressedImageHdu.Create<T>(pixels, axes, options) or ImageHdu.Compress() to build a compressed image.");
 
     // ---- Pixel access (through the decompressed image) --------------------------------------------------------------
 
     /// <summary>Decompresses and reads the stored pixel values, like <see cref="ImageHdu.ReadRawPixels{T}"/>.</summary>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
     public T[] ReadRawPixels<T>() where T : unmanaged => Decompress().ReadRawPixels<T>();
 
     /// <summary>Decompresses and reads physical pixel values, like <see cref="ImageHdu.ReadPixels{T}"/>.</summary>
+    /// <typeparam name="T">The type the physical values are returned as, for example <c>float</c> or <c>double</c>.</typeparam>
     public T[] ReadPixels<T>() where T : unmanaged => Decompress().ReadPixels<T>();
 
     // ---- Compression ---------------------------------------------------------------------------------------------
 
     /// <summary>Compresses pixels into a tile-compressed image (supported types: those of <see cref="ImageHdu.Create{T}"/>).</summary>
+    /// <typeparam name="T">The pixel type: <c>byte</c>, <c>short</c>, <c>int</c>, <c>long</c>, <c>float</c> or <c>double</c>, or an unsigned type.</typeparam>
+    /// <param name="pixels">The pixels, the first axis varying fastest.</param>
+    /// <param name="axes">The length of each axis.</param>
+    /// <param name="options">The compression options, or null for Rice compression with default settings.</param>
     public static CompressedImageHdu Create<T>(ReadOnlySpan<T> pixels, long[] axes, CompressionOptions? options = null) where T : unmanaged =>
         Compress(ImageHdu.Create(pixels, axes), options);
 
     /// <summary>Compresses an image. The image is left untouched; its header cards (except structural ones) are copied.</summary>
+    /// <param name="image">The image to compress; it is not modified.</param>
+    /// <param name="options">The compression options, or null for Rice compression with default settings.</param>
     public static CompressedImageHdu Compress(ImageHdu image, CompressionOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(image);

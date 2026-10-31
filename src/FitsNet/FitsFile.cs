@@ -18,13 +18,17 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// <summary>Creates an empty file; the first HDU added becomes the primary HDU.</summary>
     public FitsFile() { }
 
+    /// <summary>The number of HDUs.</summary>
     public int Count => _hdus.Count;
 
+    /// <summary>The HDU at a zero-based index (0 is the primary HDU).</summary>
+    /// <param name="index">The zero-based index of the HDU (0 is the primary HDU).</param>
     public Hdu this[int index] => _hdus[index];
 
     /// <summary>The primary HDU.</summary>
     public Hdu Primary => _hdus.Count > 0 ? _hdus[0] : throw new InvalidOperationException("The file has no HDU.");
 
+    /// <summary>Enumerates the HDUs in file order.</summary>
     public IEnumerator<Hdu> GetEnumerator() => _hdus.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -32,12 +36,15 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     // ---- Editing -------------------------------------------------------------------------------------------------
 
     /// <summary>Appends an HDU. An empty primary image is inserted first if the file is empty and the HDU cannot be primary.</summary>
+    /// <param name="hdu">The HDU to add.</param>
     public FitsFile Add(Hdu hdu) => Insert(_hdus.Count, hdu);
 
     /// <summary>
     /// Inserts an HDU. Inserting at index 0 makes the current primary an extension, and a non-image HDU inserted at
     /// index 0 gets an empty primary image in front of it (shifting later indexes by one).
     /// </summary>
+    /// <param name="index">The zero-based position of the new HDU.</param>
+    /// <param name="hdu">The HDU to insert.</param>
     public FitsFile Insert(int index, Hdu hdu)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -63,6 +70,11 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         return this;
     }
 
+    /// <summary>
+    /// Removes the HDU at an index.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The next HDU cannot become the primary HDU.</exception>
+    /// <param name="index">The zero-based index of the HDU to remove.</param>
     public void RemoveAt(int index)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -72,6 +84,7 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     }
 
     /// <summary>Removes an HDU; returns false if it is not part of this file. Same restrictions as <see cref="RemoveAt"/>.</summary>
+    /// <param name="hdu">The HDU to remove.</param>
     public bool Remove(Hdu hdu)
     {
         int index = _hdus.IndexOf(hdu);
@@ -83,6 +96,8 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     // ---- Reading -------------------------------------------------------------------------------------------------
 
     /// <summary>Opens a file lazily: pixel data is read from disk on demand. Dispose the result to release the file.</summary>
+    /// <param name="path">The path of the file.</param>
+    /// <param name="options">The reading options, or null for the defaults.</param>
     public static FitsFile Open(string path, FitsReadOptions? options = null)
     {
         var stream = OpenForRead(path);
@@ -104,6 +119,8 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess); // small buffer: scattered region reads must not fill 64 KB each time
 
     /// <summary>Reads a whole file from a stream into memory. The stream is left open.</summary>
+    /// <param name="stream">The stream to read from, positioned at the start of the file; it is left open.</param>
+    /// <param name="options">The reading options, or null for the defaults.</param>
     public static FitsFile Read(Stream stream, FitsReadOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -364,6 +381,8 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// reopened afterwards (or, in the worst case, after a failed replacement), the instance can no longer read its data: dispose it and open
     /// the file again; the message says which case it is.
     /// </exception>
+    /// <param name="path">The path of the file to write.</param>
+    /// <param name="checksums">What to do with the <c>CHECKSUM</c> and <c>DATASUM</c> keywords.</param>
     public void Save(string path, ChecksumPolicy checksums = ChecksumPolicy.Auto)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);

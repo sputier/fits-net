@@ -7,7 +7,6 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Description>Pure managed .NET library to read, write and manipulate FITS (Flexible Image Transport System) files.</Description>
   </PropertyGroup>
 

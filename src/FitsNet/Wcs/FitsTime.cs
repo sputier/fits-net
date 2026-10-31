@@ -38,6 +38,7 @@ public enum TimeScale
 public static class TimeScales
 {
     /// <summary>The scale named by a TIMESYS-like value, ignoring a realization in parentheses such as <c>TT(TAI)</c>; null if unknown.</summary>
+    /// <param name="name">The name, for example <c>UTC</c> or <c>TT(TAI)</c>.</param>
     public static TimeScale? Parse(string? name)
     {
         if (name is null) return null;
@@ -101,6 +102,8 @@ public static class TimeScales
     internal static int UtcDayLength(long utcDay) => utcDay < FirstUtcDay ? 86400 : 86400 + (TaiMinusUtc(utcDay + 1) - TaiMinusUtc(utcDay));
 
     /// <summary>Whether <see cref="FitsTime.To"/> can convert between two scales.</summary>
+    /// <param name="from">The scale to convert from.</param>
+    /// <param name="to">The scale to convert to.</param>
     public static bool CanConvert(TimeScale from, TimeScale to)
     {
         if (from == to) return true;
@@ -158,6 +161,8 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
 
     /// <summary>Creates an instant from a Modified Julian Date.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The date is not a number or lies outside the years -99999 to +99999.</exception>
+    /// <param name="mjd">The Modified Julian Date (JD - 2400000.5).</param>
+    /// <param name="scale">The time scale the date is expressed in.</param>
     public static FitsTime FromMjd(double mjd, TimeScale scale = TimeScale.UTC)
     {
         if (!double.IsFinite(mjd)) throw new ArgumentOutOfRangeException(nameof(mjd), "The date is not a number.");
@@ -169,6 +174,9 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     /// avoids confusing it with <see cref="FromMjd"/> and a time scale.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">A part is not a number or the date lies outside the years -99999 to +99999.</exception>
+    /// <param name="integer">The integer part of the Modified Julian Date.</param>
+    /// <param name="fraction">The fractional part, which may exceed one day.</param>
+    /// <param name="scale">The time scale the date is expressed in.</param>
     public static FitsTime FromMjdParts(double integer, double fraction, TimeScale scale = TimeScale.UTC)
     {
         if (!double.IsFinite(integer) || !double.IsFinite(fraction) || Math.Abs(integer) > 1e9 || Math.Abs(fraction) > 1e9)
@@ -183,9 +191,14 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     }
 
     /// <summary>Creates an instant from a Julian Date (its precision is that of a double: about 40 microseconds today).</summary>
+    /// <param name="jd">The Julian Date.</param>
+    /// <param name="scale">The time scale the date is expressed in.</param>
     public static FitsTime FromJd(double jd, TimeScale scale = TimeScale.UTC) => FromMjd(jd - 2400000.5, scale);
 
     /// <summary>Creates an instant from the two parts of a Julian Date (for example its integer and fractional parts).</summary>
+    /// <param name="part1">The first part of the Julian Date, for example its integer part.</param>
+    /// <param name="part2">The second part of the Julian Date, for example its fraction; the date is the sum of the two parts.</param>
+    /// <param name="scale">The time scale the date is expressed in.</param>
     public static FitsTime FromJdParts(double part1, double part2, TimeScale scale = TimeScale.UTC)
     {
         double mjd1 = part1 - 2400000.5;
@@ -193,6 +206,13 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     }
 
     /// <summary>Creates an instant from a calendar date and time (proleptic Gregorian calendar, year zero exists as in ISO-8601).</summary>
+    /// <param name="year">The year, from -99999 to 99999 (year 0 is 1 BCE).</param>
+    /// <param name="month">The month, 1 to 12.</param>
+    /// <param name="day">The day of the month, starting at 1.</param>
+    /// <param name="hour">The hour, 0 to 23.</param>
+    /// <param name="minute">The minute, 0 to 59.</param>
+    /// <param name="second">The seconds with their decimals, at least 0 and less than 60; 60 is accepted only for a leap second.</param>
+    /// <param name="scale">The time scale the date and time are expressed in.</param>
     public static FitsTime FromDateTime(long year, int month, int day, int hour = 0, int minute = 0, double second = 0.0, TimeScale scale = TimeScale.UTC)
     {
         if (year is < -99999 or > 99999) throw new ArgumentOutOfRangeException(nameof(year), "FITS datetimes cover the years -99999 to +99999.");
@@ -269,6 +289,8 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     /// are not allowed. Second 60 is accepted in UTC on a day that ends with a leap second.
     /// </summary>
     /// <exception cref="FormatException">The text is not a FITS datetime.</exception>
+    /// <param name="text">The text: <c>CCYY-MM-DD[Thh:mm:ss[.s...]]</c> or the signed five-digit year form.</param>
+    /// <param name="scale">The time scale the text is expressed in.</param>
     public static FitsTime Parse(string text, TimeScale scale = TimeScale.UTC)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -277,6 +299,9 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     }
 
     /// <summary>Like <see cref="Parse"/> but returns false instead of throwing.</summary>
+    /// <param name="text">The text to parse.</param>
+    /// <param name="scale">The time scale the text is expressed in.</param>
+    /// <param name="result">The instant when the text is valid.</param>
     public static bool TryParse(string? text, TimeScale scale, out FitsTime result) => TryParse(text, scale, out result, out _);
 
     private static bool TryParse(string? text, TimeScale scale, out FitsTime result, out string? error)
@@ -361,6 +386,7 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     }
 
     /// <summary>Formats the instant as a FITS datetime with the given number of decimals of the seconds.</summary>
+    /// <param name="decimals">The number of decimals of the seconds, 0 to 9.</param>
     public string ToIsoString(int decimals = 3)
     {
         if (decimals is < 0 or > 9) throw new ArgumentOutOfRangeException(nameof(decimals));
@@ -390,7 +416,7 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
         return sb.ToString();
     }
 
-    /// <inheritdoc/>
+    /// <summary>The instant and its time scale, for example <c>2020-01-01T00:00:00.000000 UTC</c>.</summary>
     public override string ToString() => $"{ToIsoString(6)} {Scale}";
 
     // ---- Arithmetic -------------------------------------------------------------------------------------------------
@@ -447,6 +473,7 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     private static long FloorDiv(long a, long b) => a / b - (a % b != 0 && (a < 0) != (b < 0) ? 1 : 0);
 
     /// <summary>The instant <paramref name="seconds"/> SI seconds later (earlier if negative), on the same scale.</summary>
+    /// <param name="seconds">The duration in SI seconds; a negative value goes back in time.</param>
     public FitsTime AddSeconds(double seconds)
     {
         if (!double.IsFinite(seconds) || Math.Abs(seconds) > 4e15) throw new ArgumentOutOfRangeException(nameof(seconds), "The duration is not a representable number of seconds.");
@@ -457,6 +484,7 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
 
     /// <summary>Orders two instants of the same time scale.</summary>
     /// <exception cref="ArgumentException">The instants are on different scales: convert one first.</exception>
+    /// <param name="other">The instant to compare with, on the same time scale.</param>
     public int CompareTo(FitsTime other)
     {
         double delta = SecondsSince(other);
@@ -465,6 +493,7 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
 
     /// <summary>SI seconds from <paramref name="origin"/> to this instant; both must be on the same scale.</summary>
     /// <exception cref="ArgumentException">The instants are on different scales.</exception>
+    /// <param name="origin">The instant to measure from, on the same time scale.</param>
     public double SecondsSince(FitsTime origin)
     {
         if (origin.Scale != Scale) throw new ArgumentException("The two instants are on different time scales; convert one first.", nameof(origin));
@@ -481,6 +510,7 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
     /// needs external data and throws <see cref="NotSupportedException"/>.
     /// </summary>
     /// <exception cref="NotSupportedException">The conversion needs data that is not carried, or involves UTC before 1972.</exception>
+    /// <param name="target">The time scale to convert to.</param>
     public FitsTime To(TimeScale target)
     {
         if (target == Scale) return this;
@@ -562,18 +592,27 @@ public readonly struct FitsTime : IEquatable<FitsTime>, IComparable<FitsTime>
 
     // ---- Equality ---------------------------------------------------------------------------------------------------
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Whether two instants are the same representation: same time scale, same day and same second of the day. Two instants on different
+    /// scales are not equal even when they are the same moment; compare <see cref="SecondsSince"/> after converting one with <see cref="To"/>.
+    /// </summary>
+    /// <param name="other">The instant to compare with.</param>
     public bool Equals(FitsTime other) => Scale == other.Scale && Day == other.Day && SecondOfDay.Equals(other.SecondOfDay);
 
-    /// <inheritdoc/>
+    /// <summary>Whether <paramref name="obj"/> is an instant equal to this one (see <see cref="Equals(FitsTime)"/>).</summary>
+    /// <param name="obj">The object to compare with.</param>
     public override bool Equals(object? obj) => obj is FitsTime t && Equals(t);
 
-    /// <inheritdoc/>
+    /// <summary>A hash code consistent with <see cref="Equals(FitsTime)"/>.</summary>
     public override int GetHashCode() => HashCode.Combine(Scale, Day, SecondOfDay);
 
     /// <summary>Equality of two instants.</summary>
+    /// <param name="a">The first instant.</param>
+    /// <param name="b">The second instant.</param>
     public static bool operator ==(FitsTime a, FitsTime b) => a.Equals(b);
 
     /// <summary>Inequality of two instants.</summary>
+    /// <param name="a">The first instant.</param>
+    /// <param name="b">The second instant.</param>
     public static bool operator !=(FitsTime a, FitsTime b) => !a.Equals(b);
 }

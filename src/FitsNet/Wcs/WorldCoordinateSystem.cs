@@ -219,9 +219,11 @@ public sealed class WorldCoordinateSystem
     public int TimeAxis => Array.IndexOf(_kinds, WorldAxisKind.Time);
 
     /// <summary>CZPHSia: the time at the zero point of a phase axis (zero-based axis index), if given.</summary>
+    /// <param name="axis">The zero-based index of the axis.</param>
     public double? PhaseZeroPoint(int axis) => _phaseZero[axis];
 
     /// <summary>CPERIia: the constant period of a phase axis (zero-based axis index), if given.</summary>
+    /// <param name="axis">The zero-based index of the axis.</param>
     public double? PhasePeriod(int axis) => _phasePeriod[axis];
 
     /// <summary>The CTYPEi values.</summary>
@@ -241,6 +243,8 @@ public sealed class WorldCoordinateSystem
     /// <summary>Reads the coordinate description <paramref name="alternate"/> (a space, or a letter from A to Z) of a header.</summary>
     /// <exception cref="FitsException">The keywords are inconsistent or the description is unusable.</exception>
     /// <exception cref="NotSupportedException">The description uses a projection or algorithm that is not part of the standard.</exception>
+    /// <param name="header">The header.</param>
+    /// <param name="alternate">The alternate description: a space for the primary one, or a letter from A to Z.</param>
     public static WorldCoordinateSystem FromHeader(FitsHeader header, char alternate = ' ')
     {
         ArgumentNullException.ThrowIfNull(header);
@@ -249,6 +253,7 @@ public sealed class WorldCoordinateSystem
     }
 
     /// <summary>The alternate descriptions present in a header (the primary one is not listed).</summary>
+    /// <param name="header">The header.</param>
     public static IReadOnlyList<char> AlternatesIn(FitsHeader header)
     {
         ArgumentNullException.ThrowIfNull(header);
@@ -370,6 +375,7 @@ public sealed class WorldCoordinateSystem
     /// in a celestial projection, such as a point outside the sphere, gives NaN for the two celestial coordinates only.
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="pixel"/> does not have one value per axis.</exception>
+    /// <param name="pixel">The pixel coordinates, one for each axis; the center of the first pixel is 1.</param>
     public double[] PixelToWorld(ReadOnlySpan<double> pixel)
     {
         if (pixel.Length != AxisCount) throw new ArgumentException($"{AxisCount} pixel coordinates are needed.", nameof(pixel));
@@ -384,6 +390,8 @@ public sealed class WorldCoordinateSystem
     /// (<see cref="AxisCount"/> values each) and <paramref name="world"/> receives the world coordinates in the same layout.
     /// </summary>
     /// <exception cref="ArgumentException">The lengths are not a whole number of points, or <paramref name="world"/> is too short.</exception>
+    /// <param name="pixels">The pixel coordinates of the points one after the other, <see cref="AxisCount"/> values for each point.</param>
+    /// <param name="world">Receives the world coordinates, in the same layout; it must be at least as long as <paramref name="pixels"/>.</param>
     public void PixelToWorld(ReadOnlySpan<double> pixels, Span<double> world)
     {
         int n = AxisCount;
@@ -421,6 +429,7 @@ public sealed class WorldCoordinateSystem
 
     /// <summary>The inverse of <see cref="PixelToWorld(ReadOnlySpan{double})"/>; NaN for the pixel coordinates that depend on a world position that cannot be reached.</summary>
     /// <exception cref="ArgumentException"><paramref name="world"/> does not have one value per axis.</exception>
+    /// <param name="world">The world coordinates, one for each axis (celestial coordinates in degrees).</param>
     public double[] WorldToPixel(ReadOnlySpan<double> world)
     {
         if (world.Length != AxisCount) throw new ArgumentException($"{AxisCount} world coordinates are needed.", nameof(world));
@@ -432,6 +441,8 @@ public sealed class WorldCoordinateSystem
 
     /// <summary>Converts many positions at once without allocating (see <see cref="PixelToWorld(ReadOnlySpan{double}, Span{double})"/>).</summary>
     /// <exception cref="ArgumentException">The lengths are not a whole number of points, or <paramref name="pixels"/> is too short.</exception>
+    /// <param name="world">The world coordinates, one for each axis (celestial coordinates in degrees).</param>
+    /// <param name="pixels">Receives the pixel coordinates, in the same layout; it must be at least as long as <paramref name="world"/>.</param>
     public void WorldToPixel(ReadOnlySpan<double> world, Span<double> pixels)
     {
         int n = AxisCount;
@@ -504,6 +515,8 @@ public enum WorldAxisKind
 public static class WorldCoordinateSystemExtensions
 {
     /// <summary>The world coordinate system described by the header of the HDU (see <see cref="WorldCoordinateSystem.FromHeader"/>).</summary>
+    /// <param name="hdu">The HDU.</param>
+    /// <param name="alternate">The alternate description: a space for the primary one, or a letter from A to Z.</param>
     public static WorldCoordinateSystem GetWorldCoordinateSystem(this Hdu hdu, char alternate = ' ')
     {
         ArgumentNullException.ThrowIfNull(hdu);

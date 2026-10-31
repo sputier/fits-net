@@ -6,11 +6,17 @@ namespace FitsNet;
 /// <summary>The BITPIX data representations defined by the standard.</summary>
 public enum BitPix
 {
+    /// <summary>8-bit unsigned integers.</summary>
     Byte = 8,
+    /// <summary>16-bit signed integers.</summary>
     Int16 = 16,
+    /// <summary>32-bit signed integers.</summary>
     Int32 = 32,
+    /// <summary>64-bit signed integers.</summary>
     Int64 = 64,
+    /// <summary>IEEE 754 single precision floating point numbers.</summary>
     Single = -32,
+    /// <summary>IEEE 754 double precision floating point numbers.</summary>
     Double = -64,
 }
 

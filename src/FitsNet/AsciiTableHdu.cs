@@ -7,6 +7,7 @@ namespace FitsNet;
 public sealed class AsciiTableHdu : TableHdu
 {
     /// <summary>Creates a table from columns of equal length (see the <c>CreateAscii*</c> factories of <see cref="TableColumn"/>).</summary>
+    /// <param name="columns">The columns, each with its data; they must all have the same number of rows.</param>
     public static AsciiTableHdu Create(IReadOnlyList<TableColumn> columns)
     {
         var hdu = new AsciiTableHdu(new FitsHeader(), DataSource.Empty);
@@ -238,12 +239,14 @@ public sealed class AsciiTableHdu : TableHdu
     // ---- Typed access --------------------------------------------------------------------------------------------
 
     /// <summary>Reads an <c>A</c> column.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public string[] ReadStringColumn(int index) =>
         ColumnAt(index).Format.TrimStart().StartsWith('A') || ColumnAt(index).Format.TrimStart().StartsWith('a')
             ? (string[])ReadRaw(index)
             : throw new InvalidOperationException($"Column {index} is not a character column.");
 
     /// <summary>Reads an <c>I</c> column; blank or TNULL fields are null.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public long?[] ReadIntegerColumn(int index)
     {
         var column = ColumnAt(index);
@@ -252,6 +255,8 @@ public sealed class AsciiTableHdu : TableHdu
     }
 
     /// <summary>Reads a numeric column as <c>double</c>/<c>float</c> (TSCAL/TZERO applied, blank or TNULL fields are NaN).</summary>
+    /// <typeparam name="T">The type the values are returned as: <c>double</c> or <c>float</c>, or <c>long</c> for an unscaled <c>I</c> column; any other type throws <see cref="InvalidOperationException"/>.</typeparam>
+    /// <param name="index">The zero-based index of the column.</param>
     public T[] ReadColumn<T>(int index) where T : unmanaged
     {
         var column = ColumnAt(index);
@@ -286,7 +291,12 @@ public sealed class AsciiTableHdu : TableHdu
         return (T[])(object)values.Select(v => (float)v).ToArray();
     }
 
+    /// <summary>Reads a numeric column by name (see <see cref="ReadColumn{T}(int)"/>).</summary>
+    /// <typeparam name="T">The type the values are returned as: <c>double</c> or <c>float</c>, or <c>long</c> for an unscaled <c>I</c> column; any other type throws <see cref="InvalidOperationException"/>.</typeparam>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>); the match ignores case.</param>
     public T[] ReadColumn<T>(string name) where T : unmanaged => ReadColumn<T>(RequireIndex(name));
 
+    /// <summary>Reads an <c>A</c> column by name: one string per row, with the trailing blanks removed.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>); the match ignores case.</param>
     public string[] ReadStringColumn(string name) => ReadStringColumn(RequireIndex(name));
 }

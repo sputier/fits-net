@@ -178,6 +178,7 @@ public sealed class TimeFrame
     // ---- Construction --------------------------------------------------------------------------------------------
 
     /// <summary>The global time frame of a header (TIMESYS, TIMEUNIT, TREFPOS, ...).</summary>
+    /// <param name="header">The header.</param>
     public static TimeFrame FromHeader(FitsHeader header)
     {
         ArgumentNullException.ThrowIfNull(header);
@@ -189,6 +190,9 @@ public sealed class TimeFrame
     /// The frame of a time axis of an image or random groups: CTYPEia may name the time scale, CUNITia overrides the unit, CSYERia and
     /// CRDERia the errors; the global keywords supply the rest.
     /// </summary>
+    /// <param name="header">The header of the image.</param>
+    /// <param name="axis">The one-based number of the time axis (the <c>i</c> of <c>CTYPEi</c>).</param>
+    /// <param name="alternate">The alternate description, a space for the primary one.</param>
     public static TimeFrame ForAxis(FitsHeader header, int axis, char alternate = ' ')
     {
         ArgumentNullException.ThrowIfNull(header);
@@ -202,6 +206,8 @@ public sealed class TimeFrame
     }
 
     /// <summary>The frame of a binary table column: TCTYPn, TCUNIn, TRPOSn and TRDIRn override the global keywords.</summary>
+    /// <param name="header">The header of the binary table.</param>
+    /// <param name="column">The one-based number of the column (the <c>n</c> of <c>TTYPEn</c>).</param>
     public static TimeFrame ForColumn(FitsHeader header, int column)
     {
         ArgumentNullException.ThrowIfNull(header);
@@ -214,6 +220,7 @@ public sealed class TimeFrame
     }
 
     /// <summary>Whether a CTYPE names a time axis: <c>TIME</c> or a time scale of Table 30 of the standard.</summary>
+    /// <param name="ctype">The value of a <c>CTYPEi</c> keyword.</param>
     public static bool IsTimeCoordinateType(string? ctype)
     {
         if (string.IsNullOrWhiteSpace(ctype)) return false;
@@ -283,6 +290,7 @@ public sealed class TimeFrame
     /// the unit of this frame (the unit of the axis or column when it has one).
     /// </summary>
     /// <exception cref="InvalidOperationException">The scale is local or unknown, so no reference time applies.</exception>
+    /// <param name="value">A time value of the data, in the unit of this frame.</param>
     public FitsTime ToTime(double value)
     {
         if (ReferenceTime is not { } reference)
@@ -291,6 +299,7 @@ public sealed class TimeFrame
     }
 
     /// <summary>The inverse of <see cref="ToTime"/>: the time value of the data for an instant on the same scale.</summary>
+    /// <param name="time">An instant on the time scale of this frame.</param>
     public double ToValue(FitsTime time)
     {
         if (ReferenceTime is not { } reference)
@@ -299,8 +308,10 @@ public sealed class TimeFrame
     }
 
     /// <summary>Instant of a Julian epoch such as 2000.0 (TDB).</summary>
+    /// <param name="epoch">The epoch, for example 2000.0.</param>
     public static FitsTime FromJulianEpoch(double epoch) => FitsTime.FromJd(2451545.0 + (epoch - 2000.0) * 365.25, TimeScale.TDB);
 
     /// <summary>Instant of a Besselian epoch such as 1950.0 (ET, that is TT).</summary>
+    /// <param name="epoch">The epoch, for example 1950.0.</param>
     public static FitsTime FromBesselianEpoch(double epoch) => FitsTime.FromJd(2415020.31352 + (epoch - 1900.0) * 365.242198781, TimeScale.TT);
 }

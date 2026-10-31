@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FitsNet\FitsNet.csproj" />
+    <ProjectReference Include="..\..\docs\examples\FitsNet.Examples\FitsNet.Examples.csproj" />
   </ItemGroup>
 
   <ItemGroup>

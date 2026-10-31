@@ -17,14 +17,19 @@ namespace FitsNet;
 /// </param>
 public sealed record FitsReadOptions(bool Strict = false, int MaxHeaderBlocks = 10_000, int MaxTotalHeaderBlocks = 50_000, long MaxInputBytes = 2_147_483_591L)
 {
+    /// <summary>The default options: tolerant reading with the default limits.</summary>
     public static FitsReadOptions Default { get; } = new();
 }
 
 /// <summary>An ordered collection of header cards (without the END card, which is implicit).</summary>
 public sealed class FitsHeader : IEnumerable<FitsCard>
 {
+    /// <summary>The size of a block in bytes: headers and data are padded to a multiple of it.</summary>
     public const int BlockSize = 2880;
     private const int CardsPerBlock = BlockSize / FitsCard.CardLength;
+
+    /// <summary>Creates an empty header.</summary>
+    public FitsHeader() { }
 
     private readonly List<FitsCard> _cards = [];
     private int _version;
@@ -32,13 +37,18 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     /// <summary>Incremented by every modification: lets cached views of the header (table columns) know when they are stale.</summary>
     internal int Version => _version;
 
+    /// <summary>The cards, in order, without the <c>END</c> card.</summary>
     public IReadOnlyList<FitsCard> Cards => _cards;
 
+    /// <summary>The number of cards.</summary>
     public int Count => _cards.Count;
 
+    /// <summary>The card at a zero-based index.</summary>
+    /// <param name="index">The zero-based index of the card.</param>
     public FitsCard this[int index] => _cards[index];
 
     /// <summary>Returns the first card with the given keyword, or null.</summary>
+    /// <param name="keyword">The keyword to look for.</param>
     public FitsCard? Find(string keyword)
     {
         int index = IndexOfKeyword(keyword);
@@ -63,9 +73,14 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
         return _index.GetValueOrDefault(keyword, -1);
     }
 
+    /// <summary>Whether a value card with the keyword exists.</summary>
+    /// <param name="keyword">The keyword to look for.</param>
     public bool Contains(string keyword) => Find(keyword) is not null;
 
     /// <summary>Gets a value converted to <typeparamref name="T"/>; false if absent, undefined or not convertible.</summary>
+    /// <typeparam name="T">The type to convert the value to, for example <c>int</c>, <c>long</c>, <c>double</c>, <c>bool</c> or <c>string</c>.</typeparam>
+    /// <param name="keyword">The keyword to look for.</param>
+    /// <param name="value">The converted value, or the default of the type when the method returns false.</param>
     public bool TryGetValue<T>(string keyword, out T value)
     {
         value = default!;
@@ -75,9 +90,14 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     }
 
     /// <summary>Gets a value or <c>default</c> when absent; use <see cref="TryGetValue{T}"/> to tell absence from a zero/false value.</summary>
+    /// <typeparam name="T">The type to convert the value to, for example <c>int</c>, <c>long</c>, <c>double</c>, <c>bool</c> or <c>string</c>.</typeparam>
+    /// <param name="keyword">The keyword to look for.</param>
     public T? Get<T>(string keyword) => TryGetValue<T>(keyword, out var v) ? v : default;
 
     /// <summary>Replaces the value of the first matching card or appends a new card.</summary>
+    /// <param name="keyword">The keyword.</param>
+    /// <param name="value">The new value: a <c>bool</c>, an integer, a <c>double</c>, a <see cref="System.Numerics.Complex"/> or a <c>string</c>; null for an undefined value.</param>
+    /// <param name="comment">The comment; null keeps the comment the card already has.</param>
     public FitsHeader Set(string keyword, object? value, string? comment = null)
     {
         int index = _cards.FindIndex(c => c.Kind == FitsCardKind.Value && c.Keyword == keyword);
@@ -105,6 +125,9 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     }
 
     /// <summary>Like <see cref="Set"/> for a long or unusual keyword, written with the HIERARCH convention.</summary>
+    /// <param name="keyword">The keyword, which may be longer than 8 characters and contain several words.</param>
+    /// <param name="value">The new value (see <see cref="Set"/>).</param>
+    /// <param name="comment">The comment; null keeps the comment the card already has.</param>
     public FitsHeader SetHierarch(string keyword, object? value, string? comment = null)
     {
         var card = FitsCard.Hierarch(keyword, value, comment);
@@ -118,6 +141,8 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     }
 
     /// <summary>Sets or clears (with <c>null</c>) the comment of the first card with the given keyword.</summary>
+    /// <param name="keyword">The keyword of the card.</param>
+    /// <param name="comment">The new comment, or null to remove it.</param>
     public FitsHeader SetComment(string keyword, string? comment)
     {
         int index = _cards.FindIndex(c => c.Kind == FitsCardKind.Value && c.Keyword == keyword);
@@ -127,6 +152,12 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
         return this;
     }
 
+    /// <summary>
+    /// Appends a card.
+    /// </summary>
+    /// <exception cref="ArgumentException">The card is the <c>END</c> card, which is implicit.</exception>
+    /// <returns>This header, so that calls can be chained.</returns>
+    /// <param name="card">The card to append.</param>
     public FitsHeader Add(FitsCard card)
     {
         ArgumentNullException.ThrowIfNull(card);
@@ -136,6 +167,13 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
         return this;
     }
 
+    /// <summary>
+    /// Inserts a card at an index.
+    /// </summary>
+    /// <exception cref="ArgumentException">The card is the <c>END</c> card, which is implicit.</exception>
+    /// <returns>This header, so that calls can be chained.</returns>
+    /// <param name="index">The zero-based position of the new card.</param>
+    /// <param name="card">The card to insert.</param>
     public FitsHeader Insert(int index, FitsCard card)
     {
         ArgumentNullException.ThrowIfNull(card);
@@ -145,11 +183,22 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
         return this;
     }
 
+    /// <summary>
+    /// Appends a <c>COMMENT</c> card. Text longer than a card is split over several cards.
+    /// </summary>
+    /// <returns>This header, so that calls can be chained.</returns>
+    /// <param name="text">The text of the comment.</param>
     public FitsHeader AddComment(string text) => Add(FitsCard.CommentCard(text));
 
+    /// <summary>
+    /// Appends a <c>HISTORY</c> card. Text longer than a card is split over several cards.
+    /// </summary>
+    /// <returns>This header, so that calls can be chained.</returns>
+    /// <param name="text">The text of the history entry.</param>
     public FitsHeader AddHistory(string text) => Add(FitsCard.HistoryCard(text));
 
     /// <summary>Removes every value card with the given keyword; returns how many were removed.</summary>
+    /// <param name="keyword">The keyword whose cards are removed.</param>
     public int Remove(string keyword)
     {
         int removed = _cards.RemoveAll(c => c.Kind == FitsCardKind.Value && c.Keyword == keyword);
@@ -157,18 +206,22 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
         return removed;
     }
 
+    /// <summary>Removes the card at an index.</summary>
+    /// <param name="index">The zero-based index of the card.</param>
     public void RemoveAt(int index)
     {
         _cards.RemoveAt(index);
         _version++;
     }
 
+    /// <summary>Removes every card.</summary>
     public void Clear()
     {
         _cards.Clear();
         _version++;
     }
 
+    /// <summary>Enumerates the cards in order.</summary>
     public IEnumerator<FitsCard> GetEnumerator() => _cards.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -178,18 +231,24 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     /// <summary>Number of bytes this header occupies on disk (a multiple of 2880, END card included).</summary>
     public int SerializedLength => ((FormatLines().Count + 1 + CardsPerBlock - 1) / CardsPerBlock) * BlockSize;
 
+    /// <summary>Writes the header to a stream: the cards, the <c>END</c> card and the blank padding up to a multiple of 2880 bytes.</summary>
+    /// <param name="stream">The stream to write to.</param>
     public void Write(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
         stream.Write(ToBytes());
     }
 
+    /// <summary>Asynchronous version of <see cref="Write"/>.</summary>
+    /// <param name="stream">The stream to write to.</param>
+    /// <param name="cancellationToken">A token that cancels the write.</param>
     public Task WriteAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
         return stream.WriteAsync(ToBytes(), cancellationToken).AsTask();
     }
 
+    /// <summary>The header as it is written in a file: a whole number of 2880-byte blocks.</summary>
     public byte[] ToBytes()
     {
         var lines = FormatLines();
@@ -226,6 +285,8 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     // ---- Parsing -------------------------------------------------------------------------------------------------
 
     /// <summary>Reads a header (all 2880-byte blocks up to and including the one holding END) from the stream.</summary>
+    /// <param name="stream">The stream, positioned at the start of a header.</param>
+    /// <param name="options">The reading options, or null for the defaults.</param>
     public static FitsHeader Read(Stream stream, FitsReadOptions? options = null) =>
         ReadCore(stream, options, allowEndOfStream: false)!;
 
@@ -266,6 +327,10 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
         return header;
     }
 
+    /// <summary>Asynchronous version of <see cref="Read"/>.</summary>
+    /// <param name="stream">The stream, positioned at the start of a header.</param>
+    /// <param name="options">The reading options, or null for the defaults.</param>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
     public static async Task<FitsHeader> ReadAsync(Stream stream, FitsReadOptions? options = null,
         CancellationToken cancellationToken = default)
     {

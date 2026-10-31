@@ -14,6 +14,11 @@ namespace FitsNet;
 /// </summary>
 public sealed class TableColumn
 {
+    /// <summary>
+    /// Creates a column description without data.
+    /// </summary>
+    /// <param name="name">The column name (<c>TTYPEn</c>).</param>
+    /// <param name="format">The format (<c>TFORMn</c>), such as <c>1J</c> or <c>8A</c> for a binary table, <c>F8.3</c> for an ASCII table.</param>
     public TableColumn(string? name, string format)
     {
         ArgumentNullException.ThrowIfNull(format);
@@ -27,8 +32,10 @@ public sealed class TableColumn
     /// <summary>TFORMn, e.g. <c>1J</c>, <c>10A</c>, <c>PD(100)</c> (binary) or <c>F8.3</c> (ASCII).</summary>
     public string Format { get; set; }
 
+    /// <summary>The physical unit (<c>TUNITn</c>), or null.</summary>
     public string? Unit { get; set; }
 
+    /// <summary>The display format (<c>TDISPn</c>), or null.</summary>
     public string? Display { get; set; }
 
     /// <summary>TSCALn (null = 1).</summary>
@@ -165,6 +172,12 @@ public sealed class TableColumn
     /// Numeric column. Supported: byte, sbyte, short, ushort, int, uint, long, ulong, float, double. Unsigned types and
     /// sbyte use the standard TZERO conventions. <paramref name="repeat"/> values per row.
     /// </summary>
+    /// <typeparam name="T">The numeric type; it chooses the format (<c>short</c> gives <c>I</c>, <c>float</c> gives <c>E</c>, and so on). <c>sbyte</c>, <c>ushort</c>, <c>uint</c> and <c>ulong</c> use the <c>TZERO</c> convention.</typeparam>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="values">The values of all the rows, row after row, <paramref name="repeat"/> values for each row.</param>
+    /// <param name="repeat">The number of values in each row (the repeat count of <c>TFORMn</c>).</param>
+    /// <param name="unit">The physical unit (<c>TUNITn</c>), or null.</param>
+    /// <param name="dimensions">The dimensions of the array in each row (<c>TDIMn</c>), or null.</param>
     public static TableColumn Create<T>(string name, T[] values, int repeat = 1, string? unit = null, long[]? dimensions = null)
         where T : unmanaged
     {
@@ -180,6 +193,11 @@ public sealed class TableColumn
     }
 
     /// <summary>Complex column (<c>C</c> single or <c>M</c> double precision storage).</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="values">The values of all the rows, <paramref name="repeat"/> for each row.</param>
+    /// <param name="singlePrecision">True for single precision (<c>C</c>), false for double precision (<c>M</c>).</param>
+    /// <param name="repeat">The number of values in each row.</param>
+    /// <param name="unit">The physical unit (<c>TUNITn</c>), or null.</param>
     public static TableColumn CreateComplex(string name, Complex[] values, bool singlePrecision = false, int repeat = 1, string? unit = null)
     {
         ArgumentNullException.ThrowIfNull(values);
@@ -188,14 +206,24 @@ public sealed class TableColumn
     }
 
     /// <summary>Logical column (<c>L</c>): true, false or undefined (null).</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="values">The values of all the rows, <paramref name="repeat"/> for each row; null for an undefined value.</param>
+    /// <param name="repeat">The number of values in each row.</param>
     public static TableColumn CreateLogical(string name, bool?[] values, int repeat = 1) =>
         new(name, repeat.ToString(CultureInfo.InvariantCulture) + "L") { Data = values };
 
     /// <summary>Bit column (<c>X</c>): <paramref name="bitsPerRow"/> bits per row, one bool per bit.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="bits">All the bits, <paramref name="bitsPerRow"/> for each row.</param>
+    /// <param name="bitsPerRow">The number of bits in each row (the repeat count of the <c>X</c> format).</param>
     public static TableColumn CreateBits(string name, bool[] bits, int bitsPerRow) =>
         new(name, bitsPerRow.ToString(CultureInfo.InvariantCulture) + "X") { Data = bits };
 
     /// <summary>Fixed-width character column: <paramref name="stringsPerRow"/> strings of <paramref name="width"/> characters per row.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="values">The strings of all the rows, <paramref name="stringsPerRow"/> for each row.</param>
+    /// <param name="width">The width of each string in characters; longer strings are refused.</param>
+    /// <param name="stringsPerRow">The number of strings in each row.</param>
     public static TableColumn CreateString(string name, string[] values, int width, int stringsPerRow = 1)
     {
         ArgumentNullException.ThrowIfNull(values);
@@ -206,6 +234,11 @@ public sealed class TableColumn
     }
 
     /// <summary>Variable-length numeric column (<c>P</c>, or <c>Q</c> with 64-bit descriptors): one array per row.</summary>
+    /// <typeparam name="T">The element type of the arrays.</typeparam>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="rows">One array for each row.</param>
+    /// <param name="use64BitDescriptors">True to use 64-bit descriptors (<c>Q</c>) instead of 32-bit ones (<c>P</c>).</param>
+    /// <param name="unit">The physical unit (<c>TUNITn</c>), or null.</param>
     public static TableColumn CreateVariable<T>(string name, T[][] rows, bool use64BitDescriptors = false, string? unit = null)
         where T : unmanaged
     {
@@ -225,6 +258,9 @@ public sealed class TableColumn
     }
 
     /// <summary>Variable-length character column: one string per row.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="rows">One string for each row.</param>
+    /// <param name="use64BitDescriptors">True to use 64-bit descriptors (<c>Q</c>) instead of 32-bit ones (<c>P</c>).</param>
     public static TableColumn CreateVariableString(string name, string[] rows, bool use64BitDescriptors = false)
     {
         ArgumentNullException.ThrowIfNull(rows);
@@ -234,6 +270,9 @@ public sealed class TableColumn
     }
 
     /// <summary>ASCII table character column (<c>Aw</c>); width defaults to the longest value.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="values">One string for each row.</param>
+    /// <param name="width">The width of the field, or null for the smallest that holds every string.</param>
     public static TableColumn CreateAsciiString(string name, string[] values, int? width = null)
     {
         ArgumentNullException.ThrowIfNull(values);
@@ -243,6 +282,9 @@ public sealed class TableColumn
     }
 
     /// <summary>ASCII table integer column (<c>Iw</c>); width defaults to the widest value.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="values">One value for each row; null for an undefined value.</param>
+    /// <param name="width">The width of the field, or null for the smallest that holds every value.</param>
     public static TableColumn CreateAsciiInteger(string name, long?[] values, int? width = null)
     {
         ArgumentNullException.ThrowIfNull(values);
@@ -251,6 +293,9 @@ public sealed class TableColumn
     }
 
     /// <summary>ASCII table floating point column; <paramref name="format"/> is <c>Fw.d</c>, <c>Ew.d</c> or <c>Dw.d</c>.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>).</param>
+    /// <param name="values">One value for each row.</param>
+    /// <param name="format">The Fortran format of the field, for example <c>E15.7</c> or <c>F12.5</c>.</param>
     public static TableColumn CreateAsciiFloat(string name, double[] values, string format = "E15.7") =>
         new(name, format) { Data = values };
 

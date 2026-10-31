@@ -62,6 +62,7 @@ public static class GreenBankConvention
     private static readonly string[] StructuralPrefixes = ["NAXIS", "TTYPE", "TFORM", "TUNIT", "TSCAL", "TZERO", "TNULL", "TDISP", "TDIM", "TBCOL"];
 
     /// <summary>Whether a keyword may be expanded into a column (the keywords that describe the structure of the table may not).</summary>
+    /// <param name="keyword">The keyword.</param>
     public static bool IsExpandable(string keyword)
     {
         ArgumentNullException.ThrowIfNull(keyword);
@@ -78,6 +79,9 @@ public static class GreenBankConvention
     /// column: to visit every row use <see cref="GetValues"/>.
     /// </summary>
     /// <returns>The value, or null when there is neither a column nor a keyword of that name.</returns>
+    /// <param name="table">The table.</param>
+    /// <param name="name">The name of a column or of a keyword.</param>
+    /// <param name="row">The zero-based index of the row.</param>
     public static object? GetValue(this BinaryTableHdu table, string name, long row)
     {
         ArgumentNullException.ThrowIfNull(table);
@@ -95,6 +99,8 @@ public static class GreenBankConvention
 
     /// <summary>The values of a "keyword" for every row (see <see cref="GetValue"/>); reads the column once, unlike calling <see cref="GetValue"/> per row.</summary>
     /// <returns>One entry per row, or null when there is neither a column nor a keyword of that name.</returns>
+    /// <param name="table">The table.</param>
+    /// <param name="name">The name of a column or of a keyword.</param>
     public static object?[]? GetValues(this BinaryTableHdu table, string name)
     {
         ArgumentNullException.ThrowIfNull(table);
@@ -130,6 +136,8 @@ public static class GreenBankConvention
     /// Replaces the keyword by a column of the same name that holds its value in every row (so that rows can then differ).
     /// </summary>
     /// <exception cref="ArgumentException">The keyword is a structural one, is not in the header, has no simple value, or a column of that name exists.</exception>
+    /// <param name="table">The table.</param>
+    /// <param name="keyword">The keyword to turn into a column.</param>
     public static void ExpandKeyword(this BinaryTableHdu table, string keyword)
     {
         ArgumentNullException.ThrowIfNull(table);
@@ -158,6 +166,7 @@ public static class GreenBankConvention
     /// and the value is a number, a string or a logical value (unscaled, without TNULL). The last column of a table is kept.
     /// </summary>
     /// <returns>The names of the columns that became keywords.</returns>
+    /// <param name="table">The table.</param>
     public static IReadOnlyList<string> CollapseConstantColumns(this BinaryTableHdu table)
     {
         ArgumentNullException.ThrowIfNull(table);
@@ -227,6 +236,7 @@ public static class StokesParameters
     ];
 
     /// <summary>The symbol of a coordinate value of a STOKES axis, or null when the value is not a conventional one.</summary>
+    /// <param name="coordinate">A coordinate value of a <c>STOKES</c> axis.</param>
     public static string? Symbol(double coordinate)
     {
         double rounded = Math.Round(coordinate);
@@ -237,6 +247,7 @@ public static class StokesParameters
     }
 
     /// <summary>The coordinate value of a symbol such as <c>Q</c> or <c>RR</c>, or null if unknown.</summary>
+    /// <param name="symbol">The symbol, for example <c>I</c>, <c>Q</c> or <c>RR</c>.</param>
     public static int? Code(string symbol)
     {
         ArgumentNullException.ThrowIfNull(symbol);
@@ -246,6 +257,7 @@ public static class StokesParameters
     }
 
     /// <summary>The conventional meaning of a symbol, from Table 29.</summary>
+    /// <param name="symbol">The symbol, for example <c>I</c>, <c>Q</c> or <c>RR</c>.</param>
     public static string Description(string symbol) => symbol?.Trim() switch
     {
         "I" => "Standard Stokes unpolarized",
