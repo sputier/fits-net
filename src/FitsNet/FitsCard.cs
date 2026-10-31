@@ -21,14 +21,19 @@ public enum FitsCardKind
 /// </summary>
 public sealed class FitsCard
 {
+    /// <summary>The length of a card in a file: 80 characters.</summary>
     public const int CardLength = 80;
 
+    /// <summary>The keyword (upper case); empty for a blank commentary card, <c>COMMENT</c> or <c>HISTORY</c> for those.</summary>
     public string Keyword { get; }
 
+    /// <summary>The value: a <see cref="bool"/>, <see cref="long"/>, <see cref="System.Numerics.BigInteger"/>, <see cref="double"/>, <see cref="System.Numerics.Complex"/> or <see cref="string"/>; null when the value is undefined. For a commentary card, the text.</summary>
     public object? Value { get; }
 
+    /// <summary>The comment that follows the value, without the leading slash; null when there is none.</summary>
     public string? Comment { get; }
 
+    /// <summary>What sort of card this is.</summary>
     public FitsCardKind Kind { get; }
 
     /// <summary>True when the keyword cannot be written as a standard 8-character keyword and uses the HIERARCH convention.</summary>
@@ -53,6 +58,9 @@ public sealed class FitsCard
     }
 
     /// <summary>Creates a value card, validating keyword and value.</summary>
+    /// <param name="keyword">The keyword: up to 8 upper case letters, digits, hyphens or underscores.</param>
+    /// <param name="value">The value: a <c>bool</c>, an integer, a <c>double</c>, a <see cref="System.Numerics.Complex"/> or a <c>string</c>; null for an undefined value.</param>
+    /// <param name="comment">The comment, or null for none.</param>
     public FitsCard(string keyword, object? value, string? comment = null)
         : this(ValidateKeyword(keyword), Normalize(value), ValidateText(comment, nameof(comment)), FitsCardKind.Value)
     {
@@ -62,6 +70,9 @@ public sealed class FitsCard
     /// Creates a card with a long or unusual keyword using the HIERARCH convention (which is not part of the FITS standard):
     /// printable ASCII, single-blank separated words, up to what fits in 80 characters.
     /// </summary>
+    /// <param name="keyword">The keyword, which may be longer than 8 characters and contain several words.</param>
+    /// <param name="value">The value (see the constructor).</param>
+    /// <param name="comment">The comment, or null for none.</param>
     public static FitsCard Hierarch(string keyword, object? value, string? comment = null) =>
         new(ValidateHierarchKeyword(keyword), Normalize(value), ValidateText(comment, nameof(comment)), FitsCardKind.Value) { ForceHierarch = true };
 
@@ -73,6 +84,8 @@ public sealed class FitsCard
         new(ValidateKeyword(keyword), Normalize(value, lenientText: true), comment is null ? null : ValidateLenientText(comment), FitsCardKind.Value);
 
     /// <summary>Creates a commentary card (COMMENT, HISTORY or blank keyword).</summary>
+    /// <param name="keyword"><c>COMMENT</c>, <c>HISTORY</c> or an empty string for a blank keyword.</param>
+    /// <param name="text">The text of the card.</param>
     public static FitsCard Commentary(string keyword, string text)
     {
         ArgumentNullException.ThrowIfNull(keyword);
@@ -83,10 +96,15 @@ public sealed class FitsCard
         return new FitsCard(keyword, ValidateText(text, nameof(text)) ?? "", null, FitsCardKind.Commentary);
     }
 
+    /// <summary>Creates a <c>COMMENT</c> card.</summary>
+    /// <param name="text">The text of the card.</param>
     public static FitsCard CommentCard(string text) => Commentary("COMMENT", text);
 
+    /// <summary>Creates a <c>HISTORY</c> card.</summary>
+    /// <param name="text">The text of the card.</param>
     public static FitsCard HistoryCard(string text) => Commentary("HISTORY", text);
 
+    /// <summary>The <c>END</c> card. Headers do not store it: it is added when a header is written.</summary>
     public static FitsCard End { get; } = new("END", null, null, FitsCardKind.End);
 
     /// <summary>Creates a card without validation (used by the parser to preserve non-conforming files).</summary>
@@ -95,6 +113,7 @@ public sealed class FitsCard
 
     internal FitsCard WithValue(object? value, string? comment) => new(Keyword, value, comment, Kind) { ForceHierarch = ForceHierarch };
 
+    /// <summary>A readable form of the card, such as <c>NAXIS1 = 640 / length of the first axis</c>; it is not the 80-character image of the file, which <see cref="FitsHeader.ToBytes"/> gives for a whole header.</summary>
     public override string ToString() => Kind switch
     {
         FitsCardKind.End => "END",

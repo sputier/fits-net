@@ -1,0 +1,4 @@
+# The generated documentation is compared byte for byte in CI: keep LF whatever the platform.
+docs/** text eol=lf
+mkdocs.yml text eol=lf
+*.py text eol=lf

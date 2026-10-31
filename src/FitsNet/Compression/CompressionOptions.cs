@@ -25,6 +25,9 @@ public enum CompressionAlgorithm
 /// <summary>Parameters for creating a tile-compressed image.</summary>
 public sealed class CompressionOptions
 {
+    /// <summary>Creates options with the default settings (Rice compression, blocks of 32 pixels, tiles of one row).</summary>
+    public CompressionOptions() { }
+
     /// <summary>The algorithm (default <see cref="CompressionAlgorithm.Rice"/>).</summary>
     public CompressionAlgorithm Algorithm { get; set; } = CompressionAlgorithm.Rice;
 
@@ -72,6 +75,9 @@ public sealed class CompressionOptions
 /// <summary>Parameters for creating a tile-compressed table (<see cref="CompressedTableHdu.Compress"/>).</summary>
 public sealed class CompressedTableOptions
 {
+    /// <summary>Creates options with the default settings (the algorithm chosen for each column, tiles of about 2 MB).</summary>
+    public CompressedTableOptions() { }
+
     /// <summary>
     /// The algorithm of every column, or null to choose per column: Rice for 8, 16 and 32 bit integers, GZIP_1 for logical, bit and
     /// character data, GZIP_2 for the rest. Rice requested here falls back to GZIP_2 for the columns it cannot compress.

@@ -6,6 +6,7 @@ namespace FitsNet;
 public class BinaryTableHdu : TableHdu
 {
     /// <summary>Creates a table from columns of equal length.</summary>
+    /// <param name="columns">The columns, each with its data; they must all have the same number of rows.</param>
     public static BinaryTableHdu Create(IReadOnlyList<TableColumn> columns)
     {
         var hdu = new BinaryTableHdu(new FitsHeader(), DataSource.Empty);
@@ -135,6 +136,8 @@ public class BinaryTableHdu : TableHdu
     /// integer types work unscaled or with the unsigned conventions (<c>sbyte</c>, <c>ushort</c>, <c>uint</c>, <c>ulong</c>);
     /// <see cref="Complex"/> reads <c>C</c>/<c>M</c> columns.
     /// </summary>
+    /// <typeparam name="T">The type the values are returned as, for example <c>short</c>, <c>int</c>, <c>double</c> or <see cref="System.Numerics.Complex"/>.</typeparam>
+    /// <param name="index">The zero-based index of the column.</param>
     public T[] ReadColumn<T>(int index) where T : unmanaged
     {
         var column = ColumnAt(index);
@@ -145,20 +148,30 @@ public class BinaryTableHdu : TableHdu
         return NumericConvert.Convert<T>(ReadRaw(index), f.Code, column.Scale, column.Zero, column.Null as long?);
     }
 
+    /// <summary>Reads a numeric column by name (see <see cref="ReadColumn{T}(int)"/>).</summary>
+    /// <typeparam name="T">The type the values are returned as, for example <c>short</c>, <c>int</c>, <c>double</c> or <see cref="System.Numerics.Complex"/>.</typeparam>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>); the match ignores case.</param>
     public T[] ReadColumn<T>(string name) where T : unmanaged => ReadColumn<T>(RequireIndex(name));
 
     /// <summary>Reads an <c>L</c> column: true, false, or null for undefined.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public bool?[] ReadLogicalColumn(int index) => (bool?[])ReadTyped(index, 'L', false);
 
     /// <summary>Reads an <c>X</c> column, one bool per bit.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public bool[] ReadBitColumn(int index) => (bool[])ReadTyped(index, 'X', false);
 
     /// <summary>Reads an <c>A</c> column (or a variable-length character column): one string per cell/row.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public string[] ReadStringColumn(int index) => (string[])ReadTyped(index, 'A', null);
 
+    /// <summary>Reads an <c>A</c> column by name (see <see cref="ReadStringColumn(int)"/>).</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>); the match ignores case.</param>
     public string[] ReadStringColumn(string name) => ReadStringColumn(RequireIndex(name));
 
     /// <summary>Reads a variable-length column (<c>P</c>/<c>Q</c>): one array per row, of the element type's native representation.</summary>
+    /// <typeparam name="T">The type the values of each row are returned as, for example <c>short</c> or <c>double</c>.</typeparam>
+    /// <param name="index">The zero-based index of the column.</param>
     public T[][] ReadVariableColumn<T>(int index) where T : unmanaged
     {
         var column = ColumnAt(index);
@@ -173,10 +186,17 @@ public class BinaryTableHdu : TableHdu
         return result;
     }
 
+    /// <summary>Reads a variable-length column by name (see <see cref="ReadVariableColumn{T}(int)"/>).</summary>
+    /// <typeparam name="T">The type the values of each row are returned as, for example <c>short</c> or <c>double</c>.</typeparam>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>); the match ignores case.</param>
     public T[][] ReadVariableColumn<T>(string name) where T : unmanaged => ReadVariableColumn<T>(RequireIndex(name));
 
+    /// <summary>Reads a variable-length column of logical values (<c>PL</c> / <c>QL</c>): one array per row, with null for an undefined value.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public bool?[][] ReadVariableLogicalColumn(int index) => (bool?[][])ReadTyped(index, 'L', true);
 
+    /// <summary>Reads a variable-length column of bits (<c>PX</c> / <c>QX</c>): one array of bits per row.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public bool[][] ReadVariableBitColumn(int index) => (bool[][])ReadTyped(index, 'X', true);
 
     private Array ReadTyped(int index, char code, bool? variable)

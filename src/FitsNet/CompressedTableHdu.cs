@@ -20,6 +20,7 @@ public sealed class CompressedTableHdu : BinaryTableHdu
     internal CompressedTableHdu(FitsHeader header, DataSource source) : base(header, source) { }
 
     /// <summary>Whether a binary table header describes a tile-compressed table.</summary>
+    /// <param name="header">The header of a binary table extension.</param>
     public static bool IsCompressedTable(FitsHeader header) => header.TryGetValue("ZTABLE", out bool z) && z;
 
     // ---- Parameters ----------------------------------------------------------------------------------------------
@@ -321,17 +322,29 @@ public sealed class CompressedTableHdu : BinaryTableHdu
 
     private const string EditMessage = "A compressed table cannot be edited: call Decompress(), edit the table and CompressedTableHdu.Compress() it again.";
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="columns">The new columns, each with its data; they must all have the same number of rows.</param>
     public override void SetColumns(IReadOnlyList<TableColumn> columns) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="column">The column to add; its data must have one entry for each row of the table.</param>
     public override void AddColumn(TableColumn column) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public override void RemoveColumn(int index) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="start">The zero-based index of the first row to remove.</param>
+    /// <param name="count">The number of rows to remove.</param>
     public override void RemoveRows(long start, long count) => throw new NotSupportedException(EditMessage);
 
+    /// <summary>Always throws <see cref="NotSupportedException"/>: the keywords that describe the compressed form would no longer match. Decompress, edit, and compress again.</summary>
+    /// <param name="rows">One column of data for each column of the table, in the same order, holding the rows to add.</param>
     public override void AppendRows(IReadOnlyList<TableColumn> rows) => throw new NotSupportedException(EditMessage);
 
     /// <summary>Not available: use <see cref="Compress"/> to build a compressed table.</summary>
+    /// <param name="columns">The columns, each with its data; they must all have the same number of rows.</param>
     public static new BinaryTableHdu Create(IReadOnlyList<TableColumn> columns) => throw new NotSupportedException(
         "Use CompressedTableHdu.Compress(table, options) to build a compressed table.");
 
@@ -359,6 +372,8 @@ public sealed class CompressedTableHdu : BinaryTableHdu
     /// The compression directives FZTILELN, FZALGOR and FZALGn of the header are obeyed when <paramref name="options"/> says nothing.
     /// </summary>
     /// <exception cref="NotSupportedException">The rows have bytes that belong to no column (they would be lost).</exception>
+    /// <param name="table">The table to compress; it is not modified.</param>
+    /// <param name="options">The compression options, or null for the automatic choice of algorithm and tile size.</param>
     public static CompressedTableHdu Compress(BinaryTableHdu table, CompressedTableOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(table);

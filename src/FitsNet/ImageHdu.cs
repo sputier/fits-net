@@ -20,8 +20,10 @@ public sealed class ImageHdu : Hdu
 
     private HduLayout Layout => GetLayout(IsPrimaryForm);
 
+    /// <summary>The data representation (<c>BITPIX</c>).</summary>
     public BitPix BitPix => Layout.BitPix;
 
+    /// <summary>The length of each axis (<c>NAXIS1</c>, <c>NAXIS2</c>, ...), the fastest varying axis first.</summary>
     public IReadOnlyList<long> Axes => Layout.Axes;
 
     /// <summary>Total number of pixels (0 when there are no axes).</summary>
@@ -38,6 +40,7 @@ public sealed class ImageHdu : Hdu
     }
 
     /// <summary>Tile-compresses this image (see <see cref="CompressedImageHdu.Compress"/>).</summary>
+    /// <param name="options">The compression options, or null for Rice compression with default settings.</param>
     public CompressedImageHdu Compress(FitsNet.Compression.CompressionOptions? options = null) => CompressedImageHdu.Compress(this, options);
 
     // ---- Regions ---------------------------------------------------------------------------------------------------
@@ -130,9 +133,15 @@ public sealed class ImageHdu : Hdu
     }
 
     /// <summary>Reads physical pixel values of a region (see <see cref="Subimage"/> and <see cref="ReadPixels{T}"/>).</summary>
+    /// <typeparam name="T">The type the physical values are returned as.</typeparam>
+    /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
+    /// <param name="shape">The length of the region on each axis.</param>
     public T[] ReadRegion<T>(long[] origin, long[] shape) where T : unmanaged => Subimage(origin, shape).ReadPixels<T>();
 
     /// <summary>Reads stored pixel values of a region (see <see cref="Subimage"/> and <see cref="ReadRawPixels{T}"/>).</summary>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
+    /// <param name="shape">The length of the region on each axis.</param>
     public T[] ReadRawRegion<T>(long[] origin, long[] shape) where T : unmanaged => Subimage(origin, shape).ReadRawPixels<T>();
 
     // ---- Writing -------------------------------------------------------------------------------------------------
@@ -140,6 +149,7 @@ public sealed class ImageHdu : Hdu
     /// <summary>Creates an image from pixels. Supported types: byte, sbyte, short, ushort, int, uint, long, ulong, float, double.</summary>
     /// <param name="pixels">Pixels with the first axis varying fastest (FITS order).</param>
     /// <param name="axes">NAXIS1..NAXISn.</param>
+    /// <typeparam name="T">The pixel type: <c>byte</c>, <c>short</c>, <c>int</c>, <c>long</c>, <c>float</c> or <c>double</c>; <c>sbyte</c>, <c>ushort</c>, <c>uint</c> and <c>ulong</c> use the <c>BZERO</c> convention.</typeparam>
     public static ImageHdu Create<T>(ReadOnlySpan<T> pixels, params long[] axes) where T : unmanaged
     {
         var hdu = new ImageHdu();
@@ -148,6 +158,9 @@ public sealed class ImageHdu : Hdu
     }
 
     /// <summary>Replaces the pixel data, BITPIX and axes; BSCALE, BZERO and BLANK are reset (BZERO is set for unsigned types).</summary>
+    /// <typeparam name="T">The pixel type (see <see cref="Create{T}"/>).</typeparam>
+    /// <param name="pixels">The pixels, the first axis varying fastest.</param>
+    /// <param name="axes">The length of each axis.</param>
     public void SetPixels<T>(ReadOnlySpan<T> pixels, params long[] axes) where T : unmanaged
     {
         ArgumentNullException.ThrowIfNull(axes);
@@ -243,6 +256,7 @@ public sealed class ImageHdu : Hdu
     /// Reads the stored values without applying BSCALE/BZERO or BLANK. <typeparamref name="T"/> must match BITPIX
     /// (otherwise <see cref="InvalidOperationException"/>).
     /// </summary>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
     public T[] ReadRawPixels<T>() where T : unmanaged
     {
         var layout = Layout;
@@ -258,6 +272,7 @@ public sealed class ImageHdu : Hdu
     /// BLANK is only mapped to NaN for <c>double</c>/<c>float</c>; integer reads return the sentinel as an ordinary value.
     /// Reading 64-bit integers as <c>double</c> loses precision above 2^53.
     /// </summary>
+    /// <typeparam name="T">The type the physical values are returned as (<c>BSCALE</c> and <c>BZERO</c> applied), for example <c>float</c> or <c>double</c>.</typeparam>
     public T[] ReadPixels<T>() where T : unmanaged
     {
         var layout = Layout;

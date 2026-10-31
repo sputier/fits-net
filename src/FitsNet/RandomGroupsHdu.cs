@@ -16,10 +16,13 @@ public sealed class RandomGroupsHdu : Hdu
 
     private HduLayout Layout => GetLayout(true);
 
+    /// <summary>The data representation (<c>BITPIX</c>).</summary>
     public BitPix BitPix => Layout.BitPix;
 
+    /// <summary>The number of groups (<c>GCOUNT</c>).</summary>
     public long GroupCount => Layout.GroupCount;
 
+    /// <summary>The number of parameters in each group (<c>PCOUNT</c>).</summary>
     public long ParameterCount => Layout.ParameterCount;
 
     /// <summary>NAXIS2..NAXISn: the shape of the data array of each group.</summary>
@@ -29,6 +32,7 @@ public sealed class RandomGroupsHdu : Hdu
     public long ElementsPerGroup => Layout.ElementsPerGroup;
 
     /// <summary>The PTYPEn name of parameter <paramref name="index"/> (0-based), if declared.</summary>
+    /// <param name="index">The zero-based index of the parameter.</param>
     public string? ParameterName(int index) => Header.Get<string>("PTYPE" + (index + 1));
 
     internal override void Normalize(bool primary, bool hasExtensions)
@@ -43,6 +47,11 @@ public sealed class RandomGroupsHdu : Hdu
     /// Creates a random groups HDU. <paramref name="values"/> holds, for each group, its parameters followed by its data.
     /// Supported types: byte, short, int, long, float, double.
     /// </summary>
+    /// <typeparam name="T">The value type: <c>byte</c>, <c>short</c>, <c>int</c>, <c>long</c>, <c>float</c> or <c>double</c>.</typeparam>
+    /// <param name="values">All the values: for each group its parameters, then its data array.</param>
+    /// <param name="groupCount">The number of groups.</param>
+    /// <param name="parameterCount">The number of parameters in each group.</param>
+    /// <param name="dataAxes">The length of each axis of the data array of a group.</param>
     public static RandomGroupsHdu Create<T>(ReadOnlySpan<T> values, long groupCount, long parameterCount, params long[] dataAxes)
         where T : unmanaged
     {
@@ -91,6 +100,8 @@ public sealed class RandomGroupsHdu : Hdu
     }
 
     /// <summary>Reads the raw stored values of one group (parameters then data). <typeparamref name="T"/> must match BITPIX.</summary>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="group">The zero-based index of the group.</param>
     public T[] ReadRawGroup<T>(long group) where T : unmanaged
     {
         var layout = Layout;
@@ -100,6 +111,7 @@ public sealed class RandomGroupsHdu : Hdu
     }
 
     /// <summary>Physical parameter values of a group: PZEROn + PSCALn x stored value.</summary>
+    /// <param name="group">The zero-based index of the group.</param>
     public double[] ReadParameters(long group)
     {
         var layout = Layout;
@@ -120,6 +132,7 @@ public sealed class RandomGroupsHdu : Hdu
     /// The parameters of a group by name (PTYPEn, case-insensitive). The standard says that parameters sharing a name are added
     /// together (e.g. a date split in two parts). Unnamed parameters are called <c>PARAMn</c>.
     /// </summary>
+    /// <param name="group">The zero-based index of the group.</param>
     public IReadOnlyDictionary<string, double> ReadNamedParameters(long group)
     {
         double[] values = ReadParameters(group);
@@ -133,6 +146,7 @@ public sealed class RandomGroupsHdu : Hdu
     }
 
     /// <summary>Physical data values of a group: BZERO + BSCALE x stored value (BLANK becomes NaN).</summary>
+    /// <param name="group">The zero-based index of the group.</param>
     public double[] ReadData(long group)
     {
         var layout = Layout;

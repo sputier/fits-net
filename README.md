@@ -16,6 +16,28 @@ var packed = image.Compress(new CompressionOptions { Algorithm = CompressionAlgo
 new FitsFile().Add(packed).Save("frame.fits.fz", ChecksumPolicy.Always);
 ```
 
+## Documentation
+
+The documentation is in [`docs/`](docs/index.md): a guide with examples (reading, writing, headers, images, tables, compression,
+checksums, world coordinates, time, conventions, limits), the [coverage of the standard](docs/standard-coverage.md), and a
+[reference of the whole public API](docs/api/index.md). It is plain Markdown, so it reads as is on GitHub and builds into a site with
+[MkDocs](https://www.mkdocs.org/).
+
+* The code samples of the guide live in `docs/examples/FitsNet.Examples`. They are compiled with the library and run by the tests, then
+  copied into the pages.
+* The API pages are generated from the XML comments of the library by `tools/DocGen`. A public member without a comment does not build.
+
+```shell
+dotnet run -c Release --project tools/DocGen              # regenerate the API pages and the samples in the pages
+dotnet run -c Release --project tools/DocGen -- --check   # fail if they are not up to date (CI)
+pip install -r docs/requirements.txt
+python tools/check_docs.py                                # format, links and anchors of the Markdown
+mkdocs build --strict                                     # the site, in site/
+```
+
+The `docs` job of the CI runs all of these and keeps the site as an artifact (`documentation-site`). To publish it, copy the content of
+`site/` to a web server, for example with `rsync -a --delete site/ user@server:/var/www/fitsnet/`.
+
 ## What is covered
 
 | Standard | Support |
@@ -54,7 +76,8 @@ section on hierarchical grouping (it is a registered convention outside the stan
 | `tests/FitsNet.Tests` | xUnit tests, including the astropy cross-checks (`python` with `astropy` and `numpy` is required; set `FITSNET_SKIP_INTEROP=1` to skip them) |
 | `benchmarks/` | BenchmarkDotNet projects, see `benchmarks/README.md` |
 | `data/vespera` | three real raw frames from a Vaonis Vespera Pro 2 |
-| `tools/` | Python scripts that generate the reference files and check the output with astropy |
+| `docs/` | the documentation: guide, samples (`docs/examples`) and generated API reference (`docs/api`) |
+| `tools/` | Python scripts that generate the reference files and check the output with astropy; `tools/DocGen` (API pages), `tools/check_docs.py` (Markdown checks) |
 
 ```powershell
 dotnet test                                                           # about 600 tests

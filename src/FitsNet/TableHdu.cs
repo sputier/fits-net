@@ -55,6 +55,7 @@ public abstract class TableHdu : Hdu
     }
 
     /// <summary>Index of the column whose TTYPE equals <paramref name="name"/> (case-insensitive), or -1.</summary>
+    /// <param name="name">The name of the column (<c>TTYPEn</c>); the match ignores case.</param>
     public int IndexOf(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -94,6 +95,7 @@ public abstract class TableHdu : Hdu
     // ---- Reading -------------------------------------------------------------------------------------------------
 
     /// <summary>The stored (unscaled) values of a column in the native representation described on <see cref="TableColumn"/>.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public Array ReadRaw(int index)
     {
         var column = ColumnAt(index);
@@ -129,6 +131,7 @@ public abstract class TableHdu : Hdu
     /// <paramref name="columns"/>; comments on them are not kept. The caller's column objects are not modified. Heap data not
     /// referenced by any row (and any gap before the heap) is dropped, and unused bytes at the end of rows are removed.
     /// </summary>
+    /// <param name="columns">The new columns, each with its data; they must all have the same number of rows.</param>
     public virtual void SetColumns(IReadOnlyList<TableColumn> columns) => SetColumnsCore(columns, null);
 
     private void SetColumnsCore(IReadOnlyList<TableColumn> columns, long? knownRows)
@@ -163,6 +166,7 @@ public abstract class TableHdu : Hdu
     }
 
     /// <summary>Appends a column (its data must have <see cref="RowCount"/> rows).</summary>
+    /// <param name="column">The column to add; its data must have one entry for each row of the table.</param>
     public virtual void AddColumn(TableColumn column)
     {
         var columns = ReadColumns().ToList();
@@ -171,6 +175,7 @@ public abstract class TableHdu : Hdu
     }
 
     /// <summary>Removes a column.</summary>
+    /// <param name="index">The zero-based index of the column.</param>
     public virtual void RemoveColumn(int index)
     {
         var columns = ReadColumns().ToList();
@@ -180,6 +185,8 @@ public abstract class TableHdu : Hdu
     }
 
     /// <summary>Removes <paramref name="count"/> rows starting at <paramref name="start"/>.</summary>
+    /// <param name="start">The zero-based index of the first row to remove.</param>
+    /// <param name="count">The number of rows to remove.</param>
     public virtual void RemoveRows(long start, long count)
     {
         long rows = RowCount;
@@ -199,6 +206,7 @@ public abstract class TableHdu : Hdu
     /// Appends the rows of <paramref name="rows"/>, which must have the same columns as this table: same TFORM (ignoring the
     /// variable-length maximum), TSCAL, TZERO, TNULL and TDIM, and data of the same native type.
     /// </summary>
+    /// <param name="rows">One column of data for each column of the table, in the same order, holding the rows to add.</param>
     public virtual void AppendRows(IReadOnlyList<TableColumn> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);

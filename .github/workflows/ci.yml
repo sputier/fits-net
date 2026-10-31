@@ -26,6 +26,37 @@ jobs:
         env:
           FITSNET_SKIP_INTEROP: "1"
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r docs/requirements.txt
+      - name: Build (the guide's examples are compiled with the library)
+        run: dotnet build -c Release
+      - name: The generated pages are up to date
+        run: dotnet run -c Release --no-build --project tools/DocGen -- --check
+      - name: Run the examples of the guide
+        run: dotnet test tests/FitsNet.Tests -c Release --no-build --filter "FullyQualifiedName~DocumentationExamplesTests"
+        env:
+          FITSNET_SKIP_INTEROP: "1"
+      - name: Check the Markdown (format, links, anchors)
+        run: python tools/check_docs.py
+      - name: Build the site
+        run: mkdocs build --strict
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documentation-site
+          path: site/
+          if-no-files-found: error
+
   interop:
     runs-on: ubuntu-latest
     steps:
