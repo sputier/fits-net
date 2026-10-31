@@ -24,6 +24,8 @@ internal static class GzipCodec
             try
             {
                 stream.ReadExactly(result);
+                Span<byte> extra = stackalloc byte[1];
+                if (stream.Read(extra) > 0) throw new FitsException("The gzip tile decompresses to more bytes than expected.");
             }
             catch (EndOfStreamException)
             {

@@ -70,7 +70,7 @@ public class FitsFileReviewTests
         }
         Assert.Equal(2880, HduLayout.Padded(2880));
         Assert.Equal(2880, HduLayout.Padded(1));
-        Assert.Throws<OverflowException>(() => HduLayout.Padded(long.MaxValue));
+        Assert.Throws<FitsException>(() => HduLayout.Padded(long.MaxValue));
     }
 
     [Fact]

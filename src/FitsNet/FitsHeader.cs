@@ -7,7 +7,15 @@ namespace FitsNet;
 /// <summary>Options controlling how strictly files are parsed.</summary>
 /// <param name="Strict">When true, any deviation from the standard throws a <see cref="FitsException"/>.</param>
 /// <param name="MaxHeaderBlocks">Upper bound on 2880-byte blocks read for one header, protecting against files without END.</param>
-public sealed record FitsReadOptions(bool Strict = false, int MaxHeaderBlocks = 10_000)
+/// <param name="MaxTotalHeaderBlocks">
+/// Upper bound on the 2880-byte header blocks of a whole file, all its HDUs together (it also bounds the number of extensions of a file
+/// whose headers are one block each); it applies to <see cref="FitsFile.Open"/> as well as to <see cref="FitsFile.Read(Stream, FitsReadOptions?)"/>.
+/// </param>
+/// <param name="MaxInputBytes">
+/// Upper bound on the bytes <see cref="FitsFile.Read(Stream, FitsReadOptions?)"/> takes from a stream into memory (never more than the 2 GB of a
+/// .NET array, which is the default); <see cref="FitsFile.Open"/> reads on demand and ignores it.
+/// </param>
+public sealed record FitsReadOptions(bool Strict = false, int MaxHeaderBlocks = 10_000, int MaxTotalHeaderBlocks = 50_000, long MaxInputBytes = 2_147_483_591L)
 {
     public static FitsReadOptions Default { get; } = new();
 }

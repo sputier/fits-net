@@ -66,10 +66,28 @@ internal sealed class TileGrid
         }
     }
 
+    /// <summary>The number of pixels of a tile as an array length.</summary>
+    public static int CountInt(long[] extent)
+    {
+        long n = Count(extent);
+        return n <= Array.MaxLength ? (int)n : throw new FitsException("The number of pixels of a tile is larger than an array can hold.");
+    }
+
     public static long Count(long[] extent)
     {
         long n = 1;
-        foreach (long e in extent) n = checked(n * e);
+        foreach (long e in extent)
+        {
+            if (e < 0) throw new FitsException("A tile cannot have a negative extent.");
+            try
+            {
+                n = checked(n * e);
+            }
+            catch (OverflowException)
+            {
+                throw new FitsException("The number of pixels of a tile overflows.");
+            }
+        }
         return n;
     }
 

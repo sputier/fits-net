@@ -36,7 +36,7 @@ internal sealed class MemoryDataSource(byte[] data) : DataSource
 
     public override void ReadRange(long offset, Span<byte> destination)
     {
-        if (offset < 0 || offset + destination.Length > data.Length) throw new ArgumentOutOfRangeException(nameof(offset));
+        if (offset < 0 || offset > data.Length || destination.Length > data.Length - offset) throw new ArgumentOutOfRangeException(nameof(offset));
         data.AsSpan((int)offset, destination.Length).CopyTo(destination);
     }
 
@@ -54,7 +54,7 @@ internal sealed class SegmentDataSource(byte[] buffer, int offset, int length) :
 
     public override void ReadRange(long start, Span<byte> destination)
     {
-        if (start < 0 || start + destination.Length > length) throw new ArgumentOutOfRangeException(nameof(start));
+        if (start < 0 || start > length || destination.Length > length - start) throw new ArgumentOutOfRangeException(nameof(start));
         buffer.AsSpan(offset + (int)start, destination.Length).CopyTo(destination);
     }
 
@@ -78,7 +78,7 @@ internal sealed class StreamDataSource(Stream stream, long offset, long length) 
 
     public override void ReadRange(long start, Span<byte> destination)
     {
-        if (start < 0 || start + destination.Length > length) throw new ArgumentOutOfRangeException(nameof(start));
+        if (start < 0 || start > length || destination.Length > length - start) throw new ArgumentOutOfRangeException(nameof(start));
         stream.Position = offset + start;
         try
         {

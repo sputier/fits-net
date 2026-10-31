@@ -63,12 +63,16 @@ public sealed class CompressedImageHdu : BinaryTableHdu
             }
         }
 
-        var quant = (Header.Get<string>("ZQUANTIZ") ?? "NO_DITHER").Trim().ToUpperInvariant() switch
+        // ZQUANTIZ only matters for floating point images; an empty value means the default
+        string method = (Header.Get<string>("ZQUANTIZ") ?? "").Trim().ToUpperInvariant();
+        var quant = method switch
         {
+            "" or "NO_DITHER" => QuantizationMethod.NoDither,
             "NONE" => QuantizationMethod.None,
             "SUBTRACTIVE_DITHER_1" => QuantizationMethod.SubtractiveDither1,
             "SUBTRACTIVE_DITHER_2" => QuantizationMethod.SubtractiveDither2,
-            _ => QuantizationMethod.NoDither,
+            _ when zbitpix > 0 => QuantizationMethod.NoDither,
+            _ => throw new FitsException($"The quantization method '{method}' (ZQUANTIZ) is not supported."),
         };
         int seed = Header.TryGetValue("ZDITHER0", out int s) ? s : 1;
         if (quant is QuantizationMethod.SubtractiveDither1 or QuantizationMethod.SubtractiveDither2 && seed is < 1 or > Quantizer.RandomCount)
@@ -77,7 +81,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
             throw new FitsException($"{algorithm} cannot compress 64-bit integers.");
         double tilePixels = 1;
         for (int i = 0; i < naxis; i++) tilePixels *= Math.Min(tile[i], Math.Max(axes[i], 1));
-        if (tilePixels > MaxTilePixels) throw new FitsException($"A tile of {tilePixels:N0} pixels is larger than the supported maximum.");
+        if (tilePixels > MaxTilePixels) throw new FitsException($"A tile of {tilePixels.ToString("N0", CultureInfo.InvariantCulture)} pixels is larger than the supported maximum.");
         return new Params(algorithm, (BitPix)zbitpix, axes, tile, block, bytePix, hscale, smooth, quant, seed);
     }
 
@@ -200,7 +204,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         RunTiles(grid.TileCount, maxDegreeOfParallelism, grid.MaxTilePixels, t =>
         {
             grid.GetTile(t, out var origin, out var extent);
-            int n = checked((int)TileGrid.Count(extent));
+            int n = TileGrid.CountInt(extent);
             byte[] cell = CellBytes(comp, (int)t);
             Array tile;
             if (cell.Length == 0 && raw is not null && CellBytes(raw, (int)t) is { Length: > 0 } uncompressed)
@@ -485,7 +489,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         RunTiles(grid.TileCount, options.MaxDegreeOfParallelism, grid.MaxTilePixels, t =>
         {
             grid.GetTile(t, out var origin, out var extent);
-            int n = checked((int)TileGrid.Count(extent));
+            int n = TileGrid.CountInt(extent);
             Array tile = Alloc(bp, n);
             grid.Copy(pixels, tile, origin, extent, toImage: false);
             rows[t] = [];
