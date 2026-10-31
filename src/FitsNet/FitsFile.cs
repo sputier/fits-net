@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Globalization;
 using System.Text;
 
 namespace FitsNet;
@@ -106,32 +107,46 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     public static FitsFile Read(Stream stream, FitsReadOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        options ??= FitsReadOptions.Default;
+        if (options.MaxInputBytes < 0) throw new ArgumentOutOfRangeException(nameof(options), "MaxInputBytes cannot be negative.");
+        if (options.MaxTotalHeaderBlocks < 1) throw new ArgumentOutOfRangeException(nameof(options), "MaxTotalHeaderBlocks must be at least 1.");
+        long limit = Math.Min(options.MaxInputBytes, Array.MaxLength);
+        string advice = limit == Array.MaxLength ? ": use FitsFile.Open, which reads on demand" : " (MaxInputBytes)";
+        string size = limit.ToString("N0", CultureInfo.InvariantCulture);
         // One buffer for the whole file: every HDU is a slice of it, so the file is held in memory once.
         byte[] buffer;
         int length;
-        if (stream.CanSeek)
+        try
         {
-            long remaining = Math.Max(0, stream.Length - stream.Position);
-            if (remaining > Array.MaxLength) throw new FitsException("The file is larger than 2 GB: use FitsFile.Open, which reads on demand.");
-            buffer = new byte[remaining];
-            stream.ReadExactly(buffer);
-            length = buffer.Length;
+            if (stream.CanSeek)
+            {
+                long remaining = Math.Max(0, stream.Length - stream.Position);
+                if (remaining > limit) throw new FitsException($"The file is larger than {size} bytes{advice}.");
+                buffer = new byte[remaining];
+                stream.ReadExactly(buffer);
+                length = buffer.Length;
+            }
+            else
+            {
+                // a stream of unknown length is copied block by block, so that the budget is checked before the memory is taken
+                var copy = new MemoryStream();
+                var block = new byte[81920];
+                int read;
+                while ((read = stream.Read(block, 0, block.Length)) > 0)
+                {
+                    if (copy.Length + read > limit)
+                        throw new FitsException($"The stream is larger than {size} bytes{advice}.");
+                    copy.Write(block, 0, read);
+                }
+                buffer = copy.GetBuffer(); // the capacity can exceed the length: only [0, length) is used
+                length = (int)copy.Length;
+            }
         }
-        else
+        catch (OutOfMemoryException e)
         {
-            var copy = new MemoryStream();
-            try
-            {
-                stream.CopyTo(copy);
-            }
-            catch (IOException) when (copy.Length > int.MaxValue - (1 << 20))
-            {
-                throw new FitsException("The stream is larger than 2 GB: save it to a file and use FitsFile.Open, which reads on demand.");
-            }
-            buffer = copy.GetBuffer(); // the capacity can exceed the length: only [0, length) is used
-            length = (int)copy.Length;
+            throw new FitsException("There is not enough memory to read this stream.", e);
         }
-        return ReadCore(new MemoryStream(buffer, 0, length, writable: false), options ?? FitsReadOptions.Default, lazy: false, buffer);
+        return ReadCore(new MemoryStream(buffer, 0, length, writable: false), options, lazy: false, buffer);
     }
 
     private static FitsFile ReadCore(Stream s, FitsReadOptions options, bool lazy, byte[]? shared = null)
@@ -139,6 +154,7 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         var file = new FitsFile();
         Span<byte> peek = stackalloc byte[8];
 
+        long headerBlocks = 0;
         while (s.Position < s.Length)
         {
             long start = s.Position;
@@ -157,6 +173,9 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
 
             var rawHeader = new MemoryStream();
             var header = FitsHeader.ReadCore(s, options, allowEndOfStream: false, rawHeader)!;
+            headerBlocks += rawHeader.Length / FitsHeader.BlockSize;
+            if (headerBlocks > options.MaxTotalHeaderBlocks)
+                throw new FitsException($"The headers of the file take more than {options.MaxTotalHeaderBlocks.ToString("N0", CultureInfo.InvariantCulture)} blocks (MaxTotalHeaderBlocks).");
             if (first && options.Strict && header.Get<bool>("SIMPLE") is false)
                 throw new FitsException("SIMPLE must be T in a conforming file.");
 
@@ -238,23 +257,30 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     {
         ArgumentNullException.ThrowIfNull(stream);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        WriteCore(stream, checksums);
+        WriteCore(stream, checksums).Commit();
     }
 
-    /// <summary>Writes every HDU and returns the offset of each HDU's data in the output.</summary>
-    private long[] WriteCore(Stream stream, ChecksumPolicy checksums)
+    /// <summary>
+    /// A file that has been written but not yet published: <see cref="Commit"/> makes the saved form the reference of the in-memory
+    /// HDUs, <see cref="Rollback"/> puts their headers back as they were.
+    /// </summary>
+    private sealed record SaveTransaction(long[] Offsets, Action Commit, Action Rollback);
+
+    /// <summary>Writes every HDU. The headers keep the changes of the save until the transaction is committed or rolled back.</summary>
+    private SaveTransaction WriteCore(Stream stream, ChecksumPolicy checksums)
     {
         if (_hdus.Count == 0)
         {
             new ImageHdu().Header.Write(stream);
-            return [];
+            return new SaveTransaction([], () => { }, () => { });
         }
 
         // Normalizing and checksumming rewrite headers in place; roll every header back if anything fails
-        // (invalid HDU, unreadable data, failing output) so a failed save leaves the in-memory model untouched.
-        // A successful save does update the headers (mandatory keywords, checksums) and makes them the reference.
+        // (invalid HDU, unreadable data, failing output, or a file that cannot be put in place) so a failed save leaves the
+        // in-memory model untouched. A successful save does update the headers (mandatory keywords, checksums) and makes them the reference.
         var snapshots = _hdus.Select(h => h.Header.Cards.ToList()).ToList();
         var states = _hdus.Select(h => checksums == ChecksumPolicy.Auto ? h.CaptureChecksumState() : (false, false)).ToList();
+        var wasClean = _hdus.Select(h => h.IsClean).ToList();
         var headerBytes = new byte[_hdus.Count][];
         var offsets = new long[_hdus.Count];
         try
@@ -294,23 +320,36 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         }
         catch
         {
-            for (int i = 0; i < _hdus.Count; i++) _hdus[i].Header.ReplaceAll(snapshots[i]);
+            Restore();
             throw;
         }
 
-        for (int i = 0; i < _hdus.Count; i++)
+        void Restore()
         {
-            // The saved form is now the reference for "unchanged": its header bytes, its header version and its data (the data
-            // source is updated by Rebind when the file replaces the one it was read from). The fill written is the canonical one.
-            var hdu = _hdus[i];
-            bool hasSums = hdu.Header.Contains("CHECKSUM") || hdu.Header.Contains("DATASUM");
-            hdu.OriginalHeader = hasSums ? headerBytes[i] : null;
-            hdu.CleanVersion = hdu.Header.Version;
-            hdu.OriginalSource = hdu.Source;
-            hdu.OriginalFill = null;
-            hdu.FillTruncated = false;
+            for (int i = 0; i < _hdus.Count; i++)
+            {
+                _hdus[i].Header.ReplaceAll(snapshots[i]);
+                if (wasClean[i]) _hdus[i].CleanVersion = _hdus[i].Header.Version; // the cards are what they were: so is "unchanged"
+            }
         }
-        return offsets;
+
+        void Commit()
+        {
+            for (int i = 0; i < _hdus.Count; i++)
+            {
+                // The saved form is now the reference for "unchanged": its header bytes, its header version and its data (the data
+                // source is updated by Rebind when the file replaces the one it was read from). The fill written is the canonical one.
+                var hdu = _hdus[i];
+                bool hasSums = hdu.Header.Contains("CHECKSUM") || hdu.Header.Contains("DATASUM");
+                hdu.OriginalHeader = hasSums ? headerBytes[i] : null;
+                hdu.CleanVersion = hdu.Header.Version;
+                hdu.OriginalSource = hdu.Source;
+                hdu.OriginalFill = null;
+                hdu.FillTruncated = false;
+            }
+        }
+
+        return new SaveTransaction(offsets, Commit, Restore);
     }
 
     /// <summary>
@@ -318,8 +357,13 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// then moved over it, so a failure leaves the original untouched. When overwriting the file this instance was
     /// opened from, the lazily read HDUs are re-attached to the new file. HDUs previously removed from this file
     /// lose access to their data in that case. An existing target keeps its attributes and permissions (File.Replace), and a symbolic
-    /// link is written through to its target.
+    /// link is written through to its target. A save that fails leaves the headers and the state of the HDUs as they were.
     /// </summary>
+    /// <exception cref="IOException">
+    /// The file could not be written or put in place. When the file this instance reads from was being replaced and could not be
+    /// reopened afterwards (or, in the worst case, after a failed replacement), the instance can no longer read its data: dispose it and open
+    /// the file again; the message says which case it is.
+    /// </exception>
     public void Save(string path, ChecksumPolicy checksums = ChecksumPolicy.Auto)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
@@ -329,23 +373,34 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
         string temp = full + ".tmp-" + Guid.NewGuid().ToString("N");
-        long[] offsets;
+        SaveTransaction? written = null;
         try
         {
             using var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16);
-            offsets = WriteCore(fs, checksums);
+            written = WriteCore(fs, checksums);
             fs.Flush(true);
         }
         catch
         {
+            written?.Rollback();   // when WriteCore itself failed it has already restored the headers, and written is null
             TryDelete(temp);
             throw;
         }
+        var transaction = written;
 
         if (!overwritingSource)
         {
-            try { Publish(temp, full); }
-            catch { TryDelete(temp); throw; }
+            try
+            {
+                Publish(temp, full);
+            }
+            catch
+            {
+                TryDelete(temp);
+                transaction.Rollback();
+                throw;
+            }
+            transaction.Commit();
             return;
         }
 
@@ -356,22 +411,27 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         {
             Publish(temp, full);
         }
-        catch
+        catch (Exception published)
         {
             TryDelete(temp);
+            transaction.Rollback();
             try
             {
                 Rebind(OpenForRead(full), oldStream, null); // the original file is intact: re-attach to it
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // keep the error that made the replacement fail
+                // Neither the new file nor the original can be read through this instance any more.
+                throw new IOException(
+                    $"'{full}' could not be replaced ({published.Message}) and the original could not be reopened: dispose this FitsFile and open the file again.",
+                    new AggregateException(published, e));
             }
             throw;
         }
+        transaction.Commit();
         try
         {
-            Rebind(OpenForRead(full), oldStream, offsets);
+            Rebind(OpenForRead(full), oldStream, transaction.Offsets);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

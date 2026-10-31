@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build
+        run: dotnet build -c Release
+      - name: Test (net8.0 and net10.0, without the astropy comparisons)
+        run: dotnet test tests/FitsNet.Tests -c Release --no-build
+        env:
+          FITSNET_SKIP_INTEROP: "1"
+
+  interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy astropy
+      - name: Test with the astropy comparisons
+        run: dotnet test tests/FitsNet.Tests -c Release

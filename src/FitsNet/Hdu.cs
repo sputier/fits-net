@@ -41,6 +41,9 @@ public abstract class Hdu
     /// <summary>Header version at the time the HDU was last read from, or written to, a file.</summary>
     internal int CleanVersion { get; set; } = -1;
 
+    /// <summary>True when the header is as it was when last read from, or written to, a file.</summary>
+    internal bool IsClean => CleanVersion >= 0 && Header.Version == CleanVersion;
+
     /// <summary>True when the header has not been modified since it was last read or written (stored checksums describe it).</summary>
     private bool HeaderUnchanged() => OriginalHeader is not null && Header.Version == CleanVersion;
 

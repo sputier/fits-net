@@ -87,8 +87,12 @@ internal sealed record HduLayout(
     /// <summary>Rounds up to a whole number of 2880-byte blocks.</summary>
     public static long Padded(long length)
     {
+        if (length < 0) throw new FitsException("A data size cannot be negative.");
         long rest = length % FitsHeader.BlockSize;
-        return rest == 0 ? length : checked(length + FitsHeader.BlockSize - rest);
+        if (rest == 0) return length;
+        long fill = FitsHeader.BlockSize - rest;
+        if (length > long.MaxValue - fill) throw new FitsException("The data size described by the header overflows.");
+        return length + fill;
     }
 
     private static long Require(FitsHeader header, string keyword, bool strict)
