@@ -1,4 +1,4 @@
-"""Reads files written by FitsNet with astropy and checks them (conformance + values)."""
+"""Reads files written by Eleris.FitsNet with astropy and checks them (conformance + values)."""
 import sys, numpy as np
 from astropy.io import fits
 
@@ -70,7 +70,7 @@ for name in ("nodither", "dither1", "dither2"):
     with fits.open(f"{d}/c_{name}_f32.fits") as h:
         got = h[1].data
         ours = np.fromfile(f"{d}/c_{name}_f32.raw", dtype='>f4').reshape(23, 37)
-        assert np.array_equal(got, ours), f"{name}: astropy and FitsNet decode differently (max diff {np.abs(got - ours).max()})"
+        assert np.array_equal(got, ours), f"{name}: astropy and Eleris.FitsNet decode differently (max diff {np.abs(got - ours).max()})"
         assert np.abs(got - flt).max() < 1.0, name
 mask = np.zeros((23, 37), dtype=np.int32)
 for i in range(37 * 23):
@@ -84,7 +84,7 @@ with fits.open(f"{d}/c_hcomp_i32.fits") as h:
 for name in ("hcomp_lossy", "hcomp_f32"):
     with fits.open(f"{d}/c_{name}.fits") as h:
         ours = np.fromfile(f"{d}/c_{name}.raw", dtype='>i4' if name == "hcomp_lossy" else '>f4').reshape(23, 37)
-        assert np.array_equal(h[1].data, ours), f"{name}: astropy and FitsNet decode differently"
+        assert np.array_equal(h[1].data, ours), f"{name}: astropy and Eleris.FitsNet decode differently"
 with fits.open(f"{d}/c_u16.fits") as h:
     assert np.array_equal(h[1].data, np.array([[0, 1], [65535, 40000]], dtype=np.uint16))
 print("astropy ok")

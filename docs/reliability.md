@@ -4,7 +4,7 @@
 
 | Situation | Exception |
 | --- | --- |
-| A file that is not valid FITS: bad structure, truncated data, inconsistent keywords, damaged compressed data | [`FitsException`](api/FitsNet.FitsException.md) |
+| A file that is not valid FITS: bad structure, truncated data, inconsistent keywords, damaged compressed data | [`FitsException`](api/Eleris.FitsNet.FitsException.md) |
 | A feature of a file that the library does not handle (a projection or algorithm outside the standard, a time conversion that needs outside data) | `NotSupportedException` |
 | A wrong argument: a region outside the image, a bad keyword, an array of the wrong length | `ArgumentException`, `ArgumentOutOfRangeException` |
 | A call that does not fit the state of the object: reading a scaled column as an integer, reading a column with the wrong method | `InvalidOperationException` |
@@ -63,7 +63,7 @@ catch (FitsException e)
 
 ## Limits for untrusted files
 
-The defaults suit files that you trust. For files you do not control, set the limits of [`FitsReadOptions`](api/FitsNet.FitsReadOptions.md) to what your application needs, as in [Files and HDUs](files.md#reading-options).
+The defaults suit files that you trust. For files you do not control, set the limits of [`FitsReadOptions`](api/Eleris.FitsNet.FitsReadOptions.md) to what your application needs, as in [Files and HDUs](files.md#reading-options).
 
 | Limit | Default | Protects against |
 | --- | --- | --- |
@@ -125,11 +125,11 @@ catch (IOException e)
 
 ## Threads
 
-A [`FitsFile`](api/FitsNet.FitsFile.md) is not thread-safe. Use it from one thread at a time, which includes the HDUs and headers that belong to it. To read in parallel, open the file once per thread.
+A [`FitsFile`](api/Eleris.FitsNet.FitsFile.md) is not thread-safe. Use it from one thread at a time, which includes the HDUs and headers that belong to it. To read in parallel, open the file once per thread.
 
 The library uses threads on its own only for the tile compression and decompression, controlled by `MaxDegreeOfParallelism`; the result never depends on the number of threads.
 
-[`FitsTime`](api/FitsNet.Wcs.FitsTime.md) is an immutable value type.
+[`FitsTime`](api/Eleris.FitsNet.Wcs.FitsTime.md) is an immutable value type.
 
 ## Faithful copies
 

@@ -2,7 +2,7 @@
 
 FITS has two kinds of tables.
 
-| | [`BinaryTableHdu`](api/FitsNet.BinaryTableHdu.md) | [`AsciiTableHdu`](api/FitsNet.AsciiTableHdu.md) |
+| | [`BinaryTableHdu`](api/Eleris.FitsNet.BinaryTableHdu.md) | [`AsciiTableHdu`](api/Eleris.FitsNet.AsciiTableHdu.md) |
 | --- | --- | --- |
 | Extension | `BINTABLE` | `TABLE` |
 | Values stored as | Binary | Text |
@@ -10,7 +10,7 @@ FITS has two kinds of tables.
 | Variable-length cells | Yes | No |
 | Use it for | Nearly everything | Compatibility with old software |
 
-Both derive from [`TableHdu`](api/FitsNet.TableHdu.md), which gives the common members: `RowCount`, `RowWidth`, `ColumnCount`, `Columns`, `IndexOf(name)`, `ReadColumns()`, `ReadRaw(index)`, `SetColumns`, `AddColumn`, `RemoveColumn`, `RemoveRows` and `AppendRows`. A column is described by a [`TableColumn`](api/FitsNet.TableColumn.md): its name, format, unit, scaling, dimensions and, when it carries data, the data.
+Both derive from [`TableHdu`](api/Eleris.FitsNet.TableHdu.md), which gives the common members: `RowCount`, `RowWidth`, `ColumnCount`, `Columns`, `IndexOf(name)`, `ReadColumns()`, `ReadRaw(index)`, `SetColumns`, `AddColumn`, `RemoveColumn`, `RemoveRows` and `AppendRows`. A column is described by a [`TableColumn`](api/Eleris.FitsNet.TableColumn.md): its name, format, unit, scaling, dimensions and, when it carries data, the data.
 
 ## Create a binary table
 

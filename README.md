@@ -1,4 +1,4 @@
-# FitsNet
+# Eleris.FitsNet
 
 A pure managed .NET library (net10.0 and net8.0, no dependency) to read, write and manipulate **FITS** files, written against the
 FITS 4.0 standard and checked against astropy / cfitsio.
@@ -23,7 +23,7 @@ checksums, world coordinates, time, conventions, limits), the [coverage of the s
 [reference of the whole public API](docs/api/index.md). It is plain Markdown, so it reads as is on GitHub and builds into a site with
 [MkDocs](https://www.mkdocs.org/).
 
-* The code samples of the guide live in `docs/examples/FitsNet.Examples`. They are compiled with the library and run by the tests, then
+* The code samples of the guide live in `docs/examples/Eleris.FitsNet.Examples`. They are compiled with the library and run by the tests, then
   copied into the pages.
 * The API pages are generated from the XML comments of the library by `tools/DocGen`. A public member without a comment does not build.
 
@@ -72,8 +72,8 @@ section on hierarchical grouping (it is a registered convention outside the stan
 
 | Path | Content |
 |---|---|
-| `src/FitsNet` | the library |
-| `tests/FitsNet.Tests` | xUnit tests, including the astropy cross-checks (`python` with `astropy` and `numpy` is required; set `FITSNET_SKIP_INTEROP=1` to skip them) |
+| `src/Eleris.FitsNet` | the library |
+| `tests/Eleris.FitsNet.Tests` | xUnit tests, including the astropy cross-checks (`python` with `astropy` and `numpy` is required; set `FITSNET_SKIP_INTEROP=1` to skip them) |
 | `benchmarks/` | BenchmarkDotNet projects, see `benchmarks/README.md` |
 | `data/vespera` | three real raw frames from a Vaonis Vespera Pro 2 |
 | `docs/` | the documentation: guide, samples (`docs/examples`) and generated API reference (`docs/api`) |
@@ -81,7 +81,7 @@ section on hierarchical grouping (it is a registered convention outside the stan
 
 ```powershell
 dotnet test                                                           # about 600 tests
-dotnet run -c Release --project benchmarks/FitsNet.Benchmarks -- --filter "*" --job short
+dotnet run -c Release --project benchmarks/Eleris.FitsNet.Benchmarks -- --filter "*" --job short
 ```
 
 Thread safety: a `FitsFile` opened with `FitsFile.Open` reads through one file stream and must not be used from several threads at once.
@@ -89,4 +89,4 @@ Compression and decompression parallelise internally and are safe to call from s
 
 ## License
 
-FitsNet is released under the [MIT license](LICENSE). The NuGet package is `Eleris.FitsNet`; [RELEASING.md](RELEASING.md) describes how a version is published.
+Eleris.FitsNet is released under the [MIT license](LICENSE). The NuGet package is `Eleris.FitsNet`; [RELEASING.md](RELEASING.md) describes how a version is published.

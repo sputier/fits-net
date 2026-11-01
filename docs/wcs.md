@@ -1,10 +1,10 @@
 # World coordinates
 
-A **world coordinate system** (WCS) links the pixels of an image, or the axes of any array, to physical quantities: a position on the sky, a wavelength, a time. The keywords are described in section 8 of the standard. [`WorldCoordinateSystem`](api/FitsNet.Wcs.WorldCoordinateSystem.md) reads them and does the conversion in both directions.
+A **world coordinate system** (WCS) links the pixels of an image, or the axes of any array, to physical quantities: a position on the sky, a wavelength, a time. The keywords are described in section 8 of the standard. [`WorldCoordinateSystem`](api/Eleris.FitsNet.Wcs.WorldCoordinateSystem.md) reads them and does the conversion in both directions.
 
 ## Pixel to sky and back
 
-`GetWorldCoordinateSystem()` reads the description from the header of any HDU. `WorldCoordinateSystem.FromHeader` does the same from a [`FitsHeader`](api/FitsNet.FitsHeader.md) alone.
+`GetWorldCoordinateSystem()` reads the description from the header of any HDU. `WorldCoordinateSystem.FromHeader` does the same from a [`FitsHeader`](api/Eleris.FitsNet.FitsHeader.md) alone.
 
 <!-- example: Wcs.Celestial -->
 ```csharp
@@ -95,7 +95,7 @@ Console.WriteLine($"The middle row goes from RA {world[0]:F3} to RA {world[2 * (
 
 Axes with a spectral type (`FREQ`, `ENER`, `WAVN`, `VRAD`, `WAVE`, `VOPT`, `ZOPT`, `AWAV`, `VELO`, `BETA`) are converted too. The axis can be sampled linearly, logarithmically (`-LOG`), or linearly in another spectral variable (the `-F2W`, `-W2F`, `-F2V`... algorithms of Table 26 of the standard). The types that depend on a rest frequency (`VRAD`, `VOPT`, `ZOPT`, `VELO`, `BETA`) with a nonlinear algorithm need `RESTFRQ` or `RESTWAV`, otherwise a `FitsException` tells you so. The grism algorithms and the lookup table (`-GRI`, `-GRA`, `-TAB`) are not supported and throw a `NotSupportedException`; see [Standard coverage](standard-coverage.md#world-coordinates). `AxisKinds` says what each axis is.
 
-| [`WorldAxisKind`](api/FitsNet.Wcs.WorldAxisKind.md) | Axis |
+| [`WorldAxisKind`](api/Eleris.FitsNet.Wcs.WorldAxisKind.md) | Axis |
 | --- | --- |
 | `Linear` | Anything that is not one of the following |
 | `Celestial` | Longitude or latitude |

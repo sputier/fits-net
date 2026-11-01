@@ -4,7 +4,7 @@
 
 There are two ways to load a file, with different costs.
 
-| | [`FitsFile.Open(path)`](api/FitsNet.FitsFile.md) | [`FitsFile.Read(stream)`](api/FitsNet.FitsFile.md) |
+| | [`FitsFile.Open(path)`](api/Eleris.FitsNet.FitsFile.md) | [`FitsFile.Read(stream)`](api/Eleris.FitsNet.FitsFile.md) |
 | --- | --- | --- |
 | Source | A file on disk | Any readable stream |
 | Reads at once | The headers | Everything |
@@ -26,7 +26,7 @@ Console.WriteLine($"{file.Count} HDUs");
 ```
 <!-- /example -->
 
-With `Open`, the file stays open as long as the [`FitsFile`](api/FitsNet.FitsFile.md) is not disposed, and the HDUs read their data from it when you ask. Reading a region reads only the bytes of the region:
+With `Open`, the file stays open as long as the [`FitsFile`](api/Eleris.FitsNet.FitsFile.md) is not disposed, and the HDUs read their data from it when you ask. Reading a region reads only the bytes of the region:
 
 <!-- example: Files.Lazy -->
 ```csharp
@@ -44,7 +44,7 @@ After `Dispose`, the HDUs that were read lazily cannot read their data any more.
 
 ## The structure of a file
 
-A [`FitsFile`](api/FitsNet.FitsFile.md) is a list of HDUs. It can be indexed (`file[0]`), counted (`file.Count`), enumerated (`foreach`), and changed with `Add`, `Insert`, `Remove` and `RemoveAt`; `Add` and `Insert` return the file, so calls can be chained. `Primary` is the first HDU. The rules of the standard are applied for you: the primary HDU must be an image or random groups, so adding a table to an empty file puts an empty image in front of it.
+A [`FitsFile`](api/Eleris.FitsNet.FitsFile.md) is a list of HDUs. It can be indexed (`file[0]`), counted (`file.Count`), enumerated (`foreach`), and changed with `Add`, `Insert`, `Remove` and `RemoveAt`; `Add` and `Insert` return the file, so calls can be chained. `Primary` is the first HDU. The rules of the standard are applied for you: the primary HDU must be an image or random groups, so adding a table to an empty file puts an empty image in front of it.
 
 <!-- example: Files.Structure -->
 ```csharp
@@ -70,14 +70,14 @@ Console.WriteLine(catalog is null);                      // True
 Rules enforced for you, each with an `ArgumentException` or `InvalidOperationException` that explains it:
 
 - the same HDU cannot be added twice to a file;
-- a [`RandomGroupsHdu`](api/FitsNet.RandomGroupsHdu.md) can only be the primary HDU, and a file whose primary HDU is random groups cannot get another HDU in front of it;
+- a [`RandomGroupsHdu`](api/Eleris.FitsNet.RandomGroupsHdu.md) can only be the primary HDU, and a file whose primary HDU is random groups cannot get another HDU in front of it;
 - removing the primary HDU is refused when the next HDU could not become the primary one (a table, for example): replace it with an empty image instead.
 
 An HDU can be taken from one file and added to another. If its data was still waiting on disk in the first file, it is copied into memory at that moment, so the HDU keeps working after the first file is disposed.
 
 ## Saving
 
-[`FitsFile.Save`](api/FitsNet.FitsFile.md) writes the file to a stream or to a path.
+[`FitsFile.Save`](api/Eleris.FitsNet.FitsFile.md) writes the file to a stream or to a path.
 
 <!-- example: Files.SaveStream -->
 ```csharp
@@ -109,17 +109,17 @@ Console.WriteLine(((ImageHdu)file.Primary).ReadPixels<ushort>().Length);
 ```
 <!-- /example -->
 
-A failed save throws an `IOException` and leaves the headers and the state of the HDUs as they were before the call. When you overwrite the file you opened from and the new file cannot be put in place or reopened (for example because another program holds the target), the message may say that this instance can no longer read its data: dispose the [`FitsFile`](api/FitsNet.FitsFile.md) and open the file again. HDUs that you removed from the file before saving lose access to their data in that case.
+A failed save throws an `IOException` and leaves the headers and the state of the HDUs as they were before the call. When you overwrite the file you opened from and the new file cannot be put in place or reopened (for example because another program holds the target), the message may say that this instance can no longer read its data: dispose the [`FitsFile`](api/Eleris.FitsNet.FitsFile.md) and open the file again. HDUs that you removed from the file before saving lose access to their data in that case.
 
 A file that is read and saved without a change is written back byte for byte, including the cards and comments as they were written.
 
 ## Checksums when saving
 
-The second argument of `Save` is a [`ChecksumPolicy`](api/FitsNet.ChecksumPolicy.md): `Auto` (the default) keeps up to date the checksums that already exist, `Always` writes them in every HDU, `Never` removes them. See [Checksums](checksums.md).
+The second argument of `Save` is a [`ChecksumPolicy`](api/Eleris.FitsNet.ChecksumPolicy.md): `Auto` (the default) keeps up to date the checksums that already exist, `Always` writes them in every HDU, `Never` removes them. See [Checksums](checksums.md).
 
 ## Reading options
 
-[`FitsReadOptions`](api/FitsNet.FitsReadOptions.md) is the optional last argument of `Open`, `Read` and `FitsHeader.Read`.
+[`FitsReadOptions`](api/Eleris.FitsNet.FitsReadOptions.md) is the optional last argument of `Open`, `Read` and `FitsHeader.Read`.
 
 | Option | Default | Meaning |
 | --- | --- | --- |

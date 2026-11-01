@@ -10,7 +10,7 @@ from astropy.wcs import WCS
 
 warnings.simplefilter("ignore")
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "tests", "FitsNet.Tests", "Fixtures", "wcs_vectors.json")
+OUT = os.path.join(os.path.dirname(__file__), "..", "tests", "Eleris.FitsNet.Tests", "Fixtures", "wcs_vectors.json")
 
 cases = []
 

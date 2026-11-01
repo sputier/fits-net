@@ -1,6 +1,6 @@
 # Publishing the NuGet package
 
-The package is `Eleris.FitsNet`. Its version is `<Version>` in `src/FitsNet/FitsNet.csproj`, the only place to change it
+The package is `Eleris.FitsNet`. Its version is `<Version>` in `src/Eleris.FitsNet/Eleris.FitsNet.csproj`, the only place to change it
 (`0.1.0`, or `0.2.0-preview.1` for a prerelease: nuget.org lists a version with a suffix as a prerelease).
 
 ## One-time setup
@@ -15,12 +15,12 @@ The package is `Eleris.FitsNet`. Its version is `<Version>` in `src/FitsNet/Fits
 
 ## Releasing a version
 
-1. Change `<Version>` in `src/FitsNet/FitsNet.csproj`, update the documentation if the API changed
+1. Change `<Version>` in `src/Eleris.FitsNet/Eleris.FitsNet.csproj`, update the documentation if the API changed
    (`dotnet run --project tools/DocGen`) and commit.
 2. Check the package locally:
 
    ```shell
-   dotnet pack src/FitsNet -c Release -o artifacts
+   dotnet pack src/Eleris.FitsNet -c Release -o artifacts
    python tools/verify_package.py artifacts
    ```
 

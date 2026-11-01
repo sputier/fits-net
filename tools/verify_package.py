@@ -28,7 +28,7 @@ def inspect(nupkg: Path, snupkg: Path, version: str) -> None:
         names = set(z.namelist())
         for tfm in FRAMEWORKS:
             for ext in ("dll", "xml"):
-                check(f"lib/{tfm}/FitsNet.{ext}" in names, f"missing lib/{tfm}/FitsNet.{ext}")
+                check(f"lib/{tfm}/Eleris.FitsNet.{ext}" in names, f"missing lib/{tfm}/Eleris.FitsNet.{ext}")
         check("PACKAGE.md" in names, "missing PACKAGE.md (the readme shown on nuget.org)")
         check(not any(n.endswith(".pdb") for n in names), "the symbols must be in the .snupkg, not in the .nupkg")
         nuspec = ET.fromstring(z.read(f"{PACKAGE_ID}.nuspec"))
@@ -47,11 +47,11 @@ def inspect(nupkg: Path, snupkg: Path, version: str) -> None:
     check(not dependencies, f"the library must have no dependency, found {[d.get('id') for d in dependencies]}")
     with zipfile.ZipFile(snupkg) as z:
         for tfm in FRAMEWORKS:
-            check(f"lib/{tfm}/FitsNet.pdb" in z.namelist(), f"the symbol package has no lib/{tfm}/FitsNet.pdb")
+            check(f"lib/{tfm}/Eleris.FitsNet.pdb" in z.namelist(), f"the symbol package has no lib/{tfm}/Eleris.FitsNet.pdb")
 
 
-CONSUMER = """using FitsNet;
-using FitsNet.Wcs;
+CONSUMER = """using Eleris.FitsNet;
+using Eleris.FitsNet.Wcs;
 
 var path = Path.Combine(AppContext.BaseDirectory, "consumer.fits");
 var image = ImageHdu.Create<short>([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 4, 3);

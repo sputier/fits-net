@@ -1,6 +1,6 @@
 # Headers
 
-A [`FitsHeader`](api/FitsNet.FitsHeader.md) is an ordered list of [`FitsCard`](api/FitsNet.FitsCard.md). Every HDU has one, in its `Header` property. You can also create one alone.
+A [`FitsHeader`](api/Eleris.FitsNet.FitsHeader.md) is an ordered list of [`FitsCard`](api/Eleris.FitsNet.FitsCard.md). Every HDU has one, in its `Header` property. You can also create one alone.
 
 ## Read and write values
 
@@ -160,7 +160,7 @@ Console.WriteLine(back.Get<string>("NOTES") == notes);            // True
 
 ## Serialization
 
-`ToBytes` and `Write` produce the bytes of the header: a whole number of 2880-byte blocks, ending with the `END` card. `FitsHeader.Read` parses a header from a stream. Reading uses [`FitsReadOptions`](api/FitsNet.FitsReadOptions.md), see [Files and HDUs](files.md#reading-options).
+`ToBytes` and `Write` produce the bytes of the header: a whole number of 2880-byte blocks, ending with the `END` card. `FitsHeader.Read` parses a header from a stream. Reading uses [`FitsReadOptions`](api/Eleris.FitsNet.FitsReadOptions.md), see [Files and HDUs](files.md#reading-options).
 
 <!-- example: Headers.Serialization -->
 ```csharp

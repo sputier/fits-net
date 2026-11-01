@@ -1,4 +1,4 @@
-"""Checks that astropy decodes the compressed versions of a real image (written by FitsNet) to the original pixels."""
+"""Checks that astropy decodes the compressed versions of a real image (written by Eleris.FitsNet) to the original pixels."""
 import sys
 import numpy as np
 from astropy.io import fits

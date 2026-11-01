@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Eleris.FitsNet.Benchmarks.Tables/Eleris.FitsNet.Benchmarks.Tables.csproj" />
+    <Project Path="benchmarks/Eleris.FitsNet.Benchmarks/Eleris.FitsNet.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/docs/">
+    <Project Path="docs/examples/Eleris.FitsNet.Examples/Eleris.FitsNet.Examples.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Eleris.FitsNet/Eleris.FitsNet.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/DocGen/DocGen.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Eleris.FitsNet.Tests/Eleris.FitsNet.Tests.csproj" />
+  </Folder>
+</Solution>

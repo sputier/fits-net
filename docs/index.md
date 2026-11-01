@@ -1,6 +1,6 @@
-# FitsNet
+# Eleris.FitsNet
 
-FitsNet is a .NET library to read, write and edit FITS files (Flexible Image Transport System), the format of astronomical images and tables. It is written in C# only: no native code and no dependency.
+Eleris.FitsNet is a .NET library to read, write and edit FITS files (Flexible Image Transport System), the format of astronomical images and tables. It is written in C# only: no native code and no dependency.
 
 It covers the FITS 4.0 standard: images, ASCII and binary tables, random groups, tile compression of images and of tables, checksums, world coordinate systems, time coordinates and the conventions of the appendices. [Standard coverage](standard-coverage.md) lists what is supported and what is not.
 
@@ -34,19 +34,19 @@ Console.WriteLine($"First pixel: {pixels[0]}");
 
 ## Installation
 
-FitsNet targets .NET 8 and .NET 10 and has no dependency. The package is not on NuGet yet: add the project to your solution and reference it.
+Eleris.FitsNet targets .NET 8 and .NET 10 and has no dependency. The package is not on NuGet yet: add the project to your solution and reference it.
 
 ```shell
 git clone https://github.com/sputier/fits-net.git
-dotnet add reference fits-net/src/FitsNet/FitsNet.csproj
+dotnet add reference fits-net/src/Eleris.FitsNet/Eleris.FitsNet.csproj
 ```
 
 The classes live in three namespaces:
 
 ```csharp
-using FitsNet;              // files, HDUs, headers, tables
-using FitsNet.Compression;  // options of the tile compression
-using FitsNet.Wcs;          // world coordinates and time
+using Eleris.FitsNet;              // files, HDUs, headers, tables
+using Eleris.FitsNet.Compression;  // options of the tile compression
+using Eleris.FitsNet.Wcs;          // world coordinates and time
 ```
 
 ## Where to go next
