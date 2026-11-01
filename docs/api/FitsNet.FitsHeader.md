@@ -259,6 +259,8 @@ This header, so that calls can be chained.
 **Exceptions**
 
 - [`ArgumentException`](https://learn.microsoft.com/dotnet/api/system.argumentexception) — The card is the `END` card, which is implicit.
+- [`ArgumentNullException`](https://learn.microsoft.com/dotnet/api/system.argumentnullexception) — `card` is `null`.
+- [`ArgumentOutOfRangeException`](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception) — `index` is negative or greater than the number of cards.
 
 <a id="fitsnet-fitsheader-read-system-io-stream-fitsnet-fitsreadoptions"></a>
 ### `Read(Stream, FitsReadOptions)`
@@ -314,6 +316,10 @@ public void RemoveAt(int index)
 **Parameters**
 
 - `index` — The zero-based index of the card.
+
+**Exceptions**
+
+- [`ArgumentOutOfRangeException`](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception) — `index` is not the index of a card.
 
 <a id="fitsnet-fitsheader-set-system-string-system-object-system-string"></a>
 ### `Set(string, object, string)`

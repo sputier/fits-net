@@ -36,6 +36,9 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     // ---- Editing -------------------------------------------------------------------------------------------------
 
     /// <summary>Appends an HDU. An empty primary image is inserted first if the file is empty and the HDU cannot be primary.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="hdu"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The HDU is already part of this file.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
     /// <param name="hdu">The HDU to add.</param>
     public FitsFile Add(Hdu hdu) => Insert(_hdus.Count, hdu);
 
@@ -43,6 +46,10 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// Inserts an HDU. Inserting at index 0 makes the current primary an extension, and a non-image HDU inserted at
     /// index 0 gets an empty primary image in front of it (shifting later indexes by one).
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative or greater than the number of HDUs.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="hdu"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The HDU is already part of this file, a random groups HDU would not be the primary HDU, or the current primary is a random groups HDU and <paramref name="index"/> is 0.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
     /// <param name="index">The zero-based position of the new HDU.</param>
     /// <param name="hdu">The HDU to insert.</param>
     public FitsFile Insert(int index, Hdu hdu)
@@ -74,6 +81,8 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// Removes the HDU at an index.
     /// </summary>
     /// <exception cref="InvalidOperationException">The next HDU cannot become the primary HDU.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not the index of an HDU.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
     /// <param name="index">The zero-based index of the HDU to remove.</param>
     public void RemoveAt(int index)
     {
