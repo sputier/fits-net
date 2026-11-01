@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\FitsNet\FitsNet.csproj" />
+    <ProjectReference Include="..\..\src\Eleris.FitsNet\Eleris.FitsNet.csproj" />
   </ItemGroup>
 
 </Project>

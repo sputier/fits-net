@@ -1,4 +1,4 @@
-"""Generates reference table FITS files with astropy for the FitsNet tests."""
+"""Generates reference table FITS files with astropy for the Eleris.FitsNet tests."""
 import sys, numpy as np
 from astropy.io import fits
 

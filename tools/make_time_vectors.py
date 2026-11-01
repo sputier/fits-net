@@ -9,7 +9,7 @@ from astropy.time import Time
 
 warnings.simplefilter("ignore")
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "tests", "FitsNet.Tests", "Fixtures", "time_vectors.json")
+OUT = os.path.join(os.path.dirname(__file__), "..", "tests", "Eleris.FitsNet.Tests", "Fixtures", "time_vectors.json")
 rng = random.Random(5)
 
 iso = []

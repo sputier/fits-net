@@ -7,23 +7,23 @@ A FITS file is a sequence of **HDUs** (header and data units). Each HDU has:
 - a **header**: a list of cards, each a `KEYWORD = value / comment` line of 80 characters, that describes the data and everything around it (the target, the instrument, the date, the coordinates...);
 - some **data**: an image, a table, or nothing.
 
-The first HDU is the **primary HDU**. The following ones are **extensions**. In FitsNet, the file is a [`FitsFile`](api/FitsNet.FitsFile.md), an HDU is a [`Hdu`](api/FitsNet.Hdu.md), and the header is a [`FitsHeader`](api/FitsNet.FitsHeader.md).
+The first HDU is the **primary HDU**. The following ones are **extensions**. In Eleris.FitsNet, the file is a [`FitsFile`](api/Eleris.FitsNet.FitsFile.md), an HDU is a [`Hdu`](api/Eleris.FitsNet.Hdu.md), and the header is a [`FitsHeader`](api/Eleris.FitsNet.FitsHeader.md).
 
 | Kind of HDU | Class | Holds |
 | --- | --- | --- |
-| Image (primary or `IMAGE` extension) | [`ImageHdu`](api/FitsNet.ImageHdu.md) | An array of 0 to 999 dimensions |
-| Random groups (primary only) | [`RandomGroupsHdu`](api/FitsNet.RandomGroupsHdu.md) | Many small arrays, each with parameters |
-| Binary table (`BINTABLE`) | [`BinaryTableHdu`](api/FitsNet.BinaryTableHdu.md) | Rows and typed columns |
-| ASCII table (`TABLE`) | [`AsciiTableHdu`](api/FitsNet.AsciiTableHdu.md) | Rows and columns written as text |
-| Compressed image | [`CompressedImageHdu`](api/FitsNet.CompressedImageHdu.md) | A tile-compressed image, stored in a binary table |
-| Compressed table | [`CompressedTableHdu`](api/FitsNet.CompressedTableHdu.md) | A tile-compressed binary table |
-| Anything else | [`GenericHdu`](api/FitsNet.GenericHdu.md) | The bytes, kept as they are |
+| Image (primary or `IMAGE` extension) | [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md) | An array of 0 to 999 dimensions |
+| Random groups (primary only) | [`RandomGroupsHdu`](api/Eleris.FitsNet.RandomGroupsHdu.md) | Many small arrays, each with parameters |
+| Binary table (`BINTABLE`) | [`BinaryTableHdu`](api/Eleris.FitsNet.BinaryTableHdu.md) | Rows and typed columns |
+| ASCII table (`TABLE`) | [`AsciiTableHdu`](api/Eleris.FitsNet.AsciiTableHdu.md) | Rows and columns written as text |
+| Compressed image | [`CompressedImageHdu`](api/Eleris.FitsNet.CompressedImageHdu.md) | A tile-compressed image, stored in a binary table |
+| Compressed table | [`CompressedTableHdu`](api/Eleris.FitsNet.CompressedTableHdu.md) | A tile-compressed binary table |
+| Anything else | [`GenericHdu`](api/Eleris.FitsNet.GenericHdu.md) | The bytes, kept as they are |
 
-All the HDUs are classes of the same hierarchy, so `file[1]` gives a [`Hdu`](api/FitsNet.Hdu.md) that you cast to the kind you expect, or test with `is`.
+All the HDUs are classes of the same hierarchy, so `file[1]` gives a [`Hdu`](api/Eleris.FitsNet.Hdu.md) that you cast to the kind you expect, or test with `is`.
 
 ## Read a file
 
-[`FitsFile.Open`](api/FitsNet.FitsFile.md) opens a file on disk. It reads the headers at once and leaves the data on disk until you ask for it, so opening a very large file costs almost nothing. Dispose the file when you are done.
+[`FitsFile.Open`](api/Eleris.FitsNet.FitsFile.md) opens a file on disk. It reads the headers at once and leaves the data on disk until you ask for it, so opening a very large file costs almost nothing. Dispose the file when you are done.
 
 <!-- example: Start.Inspect -->
 ```csharp
@@ -94,7 +94,7 @@ using var file = FitsFile.Open("m42.fits");
 
 file.Primary.Header
     .Set("OBSERVER", "A. Astronomer", "who took the image")
-    .AddHistory("Header completed with FitsNet");
+    .AddHistory("Header completed with Eleris.FitsNet");
 
 // The new file is written completely before it replaces the target, so a failure never leaves half a file.
 file.Save("m42-edited.fits");
@@ -105,7 +105,7 @@ The pixels are not loaded to edit a header: with `Open`, the data stays on disk 
 
 ## Use the coordinates
 
-If the header has the keywords of a world coordinate system, [`WorldCoordinateSystem`](api/FitsNet.Wcs.WorldCoordinateSystem.md) converts pixel positions to positions on the sky and back.
+If the header has the keywords of a world coordinate system, [`WorldCoordinateSystem`](api/Eleris.FitsNet.Wcs.WorldCoordinateSystem.md) converts pixel positions to positions on the sky and back.
 
 <!-- example: Start.Coordinates -->
 ```csharp
@@ -125,5 +125,5 @@ Console.WriteLine($"M42 is at pixel ({pixel[0]:F1}, {pixel[1]:F1})");
 
 - **Pixel numbers.** In the header and in the world coordinate functions, the center of the first pixel is `1.0`, as in the standard. In the arrays you read or write, indexes are zero-based as usual in .NET, and so are `origin` arguments.
 - **Axis order.** The first axis varies fastest in memory: for an image of width `w`, the pixel `(x, y)` is at index `y * w + x`.
-- **Errors.** A file that is not valid FITS throws a [`FitsException`](api/FitsNet.FitsException.md). Wrong arguments throw the usual `ArgumentException` family. See [Reliability and limits](reliability.md).
-- **Threads.** Reading from a [`FitsFile`](api/FitsNet.FitsFile.md) from several threads at once is not supported; compression uses several threads on its own.
+- **Errors.** A file that is not valid FITS throws a [`FitsException`](api/Eleris.FitsNet.FitsException.md). Wrong arguments throw the usual `ArgumentException` family. See [Reliability and limits](reliability.md).
+- **Threads.** Reading from a [`FitsFile`](api/Eleris.FitsNet.FitsFile.md) from several threads at once is not supported; compression uses several threads on its own.

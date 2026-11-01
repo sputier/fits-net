@@ -1,6 +1,6 @@
 # Standard coverage
 
-This page lists, section by section, how FitsNet follows the FITS 4.0 standard, and what it does not do. "Supported" means that the feature is implemented and tested. The notes under each section are the limits you should know about.
+This page lists, section by section, how Eleris.FitsNet follows the FITS 4.0 standard, and what it does not do. "Supported" means that the feature is implemented and tested. The notes under each section are the limits you should know about.
 
 ## Overview
 
@@ -24,7 +24,7 @@ This page lists, section by section, how FitsNet follows the FITS 4.0 standard, 
 
 ## Files, headers and data
 
-- Files are read and written in blocks of 2880 bytes. Extensions that the library does not know are kept as [`GenericHdu`](api/FitsNet.GenericHdu.md): their header and bytes survive a read and a save.
+- Files are read and written in blocks of 2880 bytes. Extensions that the library does not know are kept as [`GenericHdu`](api/Eleris.FitsNet.GenericHdu.md): their header and bytes survive a read and a save.
 - Keyword values: strings, integers, floating point numbers, logical values, complex numbers and undefined values.
 - `HIERARCH` keywords and the long string convention (`CONTINUE`) are not part of the standard and are supported as conventions.
 - Arrays that are read in one piece are limited to the size of a .NET array (about 2 GB). Larger images are read by region.

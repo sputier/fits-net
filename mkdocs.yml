@@ -1,4 +1,4 @@
-site_name: FitsNet
+site_name: Eleris.FitsNet
 site_description: A .NET library to read, write and edit FITS files.
 repo_url: https://github.com/sputier/fits-net
 docs_dir: docs
@@ -40,42 +40,42 @@ nav:
   # BEGIN API NAVIGATION
   - API reference:
     - Overview: api/index.md
-    - FitsNet:
-      - "AsciiTableHdu": api/FitsNet.AsciiTableHdu.md
-      - "BinaryTableHdu": api/FitsNet.BinaryTableHdu.md
-      - "BitPix": api/FitsNet.BitPix.md
-      - "ChecksumPolicy": api/FitsNet.ChecksumPolicy.md
-      - "ChecksumResult": api/FitsNet.ChecksumResult.md
-      - "ChecksumStatus": api/FitsNet.ChecksumStatus.md
-      - "CompressedImageHdu": api/FitsNet.CompressedImageHdu.md
-      - "CompressedTableHdu": api/FitsNet.CompressedTableHdu.md
-      - "FitsCard": api/FitsNet.FitsCard.md
-      - "FitsCardKind": api/FitsNet.FitsCardKind.md
-      - "FitsException": api/FitsNet.FitsException.md
-      - "FitsFile": api/FitsNet.FitsFile.md
-      - "FitsHeader": api/FitsNet.FitsHeader.md
-      - "FitsMimeTypes": api/FitsNet.FitsMimeTypes.md
-      - "FitsReadOptions": api/FitsNet.FitsReadOptions.md
-      - "GenericHdu": api/FitsNet.GenericHdu.md
-      - "GreenBankConvention": api/FitsNet.GreenBankConvention.md
-      - "Hdu": api/FitsNet.Hdu.md
-      - "HeaderInheritance": api/FitsNet.HeaderInheritance.md
-      - "ImageHdu": api/FitsNet.ImageHdu.md
-      - "RandomGroupsHdu": api/FitsNet.RandomGroupsHdu.md
-      - "StokesParameters": api/FitsNet.StokesParameters.md
-      - "TableColumn": api/FitsNet.TableColumn.md
-      - "TableHdu": api/FitsNet.TableHdu.md
-    - FitsNet.Compression:
-      - "CompressedTableOptions": api/FitsNet.Compression.CompressedTableOptions.md
-      - "CompressionAlgorithm": api/FitsNet.Compression.CompressionAlgorithm.md
-      - "CompressionOptions": api/FitsNet.Compression.CompressionOptions.md
-      - "QuantizationMethod": api/FitsNet.Compression.QuantizationMethod.md
-    - FitsNet.Wcs:
-      - "FitsTime": api/FitsNet.Wcs.FitsTime.md
-      - "TimeFrame": api/FitsNet.Wcs.TimeFrame.md
-      - "TimeScale": api/FitsNet.Wcs.TimeScale.md
-      - "TimeScales": api/FitsNet.Wcs.TimeScales.md
-      - "WorldAxisKind": api/FitsNet.Wcs.WorldAxisKind.md
-      - "WorldCoordinateSystem": api/FitsNet.Wcs.WorldCoordinateSystem.md
-      - "WorldCoordinateSystemExtensions": api/FitsNet.Wcs.WorldCoordinateSystemExtensions.md
+    - Eleris.FitsNet:
+      - "AsciiTableHdu": api/Eleris.FitsNet.AsciiTableHdu.md
+      - "BinaryTableHdu": api/Eleris.FitsNet.BinaryTableHdu.md
+      - "BitPix": api/Eleris.FitsNet.BitPix.md
+      - "ChecksumPolicy": api/Eleris.FitsNet.ChecksumPolicy.md
+      - "ChecksumResult": api/Eleris.FitsNet.ChecksumResult.md
+      - "ChecksumStatus": api/Eleris.FitsNet.ChecksumStatus.md
+      - "CompressedImageHdu": api/Eleris.FitsNet.CompressedImageHdu.md
+      - "CompressedTableHdu": api/Eleris.FitsNet.CompressedTableHdu.md
+      - "FitsCard": api/Eleris.FitsNet.FitsCard.md
+      - "FitsCardKind": api/Eleris.FitsNet.FitsCardKind.md
+      - "FitsException": api/Eleris.FitsNet.FitsException.md
+      - "FitsFile": api/Eleris.FitsNet.FitsFile.md
+      - "FitsHeader": api/Eleris.FitsNet.FitsHeader.md
+      - "FitsMimeTypes": api/Eleris.FitsNet.FitsMimeTypes.md
+      - "FitsReadOptions": api/Eleris.FitsNet.FitsReadOptions.md
+      - "GenericHdu": api/Eleris.FitsNet.GenericHdu.md
+      - "GreenBankConvention": api/Eleris.FitsNet.GreenBankConvention.md
+      - "Hdu": api/Eleris.FitsNet.Hdu.md
+      - "HeaderInheritance": api/Eleris.FitsNet.HeaderInheritance.md
+      - "ImageHdu": api/Eleris.FitsNet.ImageHdu.md
+      - "RandomGroupsHdu": api/Eleris.FitsNet.RandomGroupsHdu.md
+      - "StokesParameters": api/Eleris.FitsNet.StokesParameters.md
+      - "TableColumn": api/Eleris.FitsNet.TableColumn.md
+      - "TableHdu": api/Eleris.FitsNet.TableHdu.md
+    - Eleris.FitsNet.Compression:
+      - "CompressedTableOptions": api/Eleris.FitsNet.Compression.CompressedTableOptions.md
+      - "CompressionAlgorithm": api/Eleris.FitsNet.Compression.CompressionAlgorithm.md
+      - "CompressionOptions": api/Eleris.FitsNet.Compression.CompressionOptions.md
+      - "QuantizationMethod": api/Eleris.FitsNet.Compression.QuantizationMethod.md
+    - Eleris.FitsNet.Wcs:
+      - "FitsTime": api/Eleris.FitsNet.Wcs.FitsTime.md
+      - "TimeFrame": api/Eleris.FitsNet.Wcs.TimeFrame.md
+      - "TimeScale": api/Eleris.FitsNet.Wcs.TimeScale.md
+      - "TimeScales": api/Eleris.FitsNet.Wcs.TimeScales.md
+      - "WorldAxisKind": api/Eleris.FitsNet.Wcs.WorldAxisKind.md
+      - "WorldCoordinateSystem": api/Eleris.FitsNet.Wcs.WorldCoordinateSystem.md
+      - "WorldCoordinateSystemExtensions": api/Eleris.FitsNet.Wcs.WorldCoordinateSystemExtensions.md
   # END API NAVIGATION

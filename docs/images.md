@@ -1,6 +1,6 @@
 # Images
 
-An [`ImageHdu`](api/FitsNet.ImageHdu.md) holds an array of 0 to 999 dimensions. The primary HDU of most files is an image, and so are the `IMAGE` extensions.
+An [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md) holds an array of 0 to 999 dimensions. The primary HDU of most files is an image, and so are the `IMAGE` extensions.
 
 ## Create an image
 
@@ -93,7 +93,7 @@ Console.WriteLine($"{physical[3]} is stored as {stored[3]}");
 
 On a file opened with `FitsFile.Open`, `ReadRegion<T>` reads only the bytes of the region, so a cutout of an image of any size costs what the cutout costs. `origin` and `shape` are zero-based and have one entry per axis, the first axis first. The region is limited to 2 GB.
 
-`Subimage` returns the region as a new [`ImageHdu`](api/FitsNet.ImageHdu.md). It keeps the header, moves `CRPIXn` (and the alternate descriptions) and the IRAF `LTVn` offsets so that the coordinates stay right, and drops `CHECKSUM` and `DATASUM`, which would not be valid any more. `ReadRawRegion<T>` is the stored-value version of `ReadRegion<T>`.
+`Subimage` returns the region as a new [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md). It keeps the header, moves `CRPIXn` (and the alternate descriptions) and the IRAF `LTVn` offsets so that the coordinates stay right, and drops `CHECKSUM` and `DATASUM`, which would not be valid any more. `ReadRawRegion<T>` is the stored-value version of `ReadRegion<T>`.
 
 <!-- example: Images.Regions -->
 ```csharp
@@ -129,7 +129,7 @@ Console.WriteLine($"{image.BitPix} {string.Join(" x ", image.Axes)} {image.Heade
 
 ## Random groups
 
-Random groups are an old structure, kept for radio interferometry data. A [`RandomGroupsHdu`](api/FitsNet.RandomGroupsHdu.md) is the primary HDU only. It holds a number of groups; each has a few parameters and a small array. `ReadParameters(i)` and `ReadData(i)` return the physical values of the group `i`, as `double`.
+Random groups are an old structure, kept for radio interferometry data. A [`RandomGroupsHdu`](api/Eleris.FitsNet.RandomGroupsHdu.md) is the primary HDU only. It holds a number of groups; each has a few parameters and a small array. `ReadParameters(i)` and `ReadData(i)` return the physical values of the group `i`, as `double`.
 
 <!-- example: Images.RandomGroups -->
 ```csharp

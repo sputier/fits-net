@@ -1,13 +1,13 @@
 # Time
 
-Section 9 of the standard describes how a FITS file records time: the time scale, the unit, the reference time, and the keywords that say when an observation took place. FitsNet has two types for this:
+Section 9 of the standard describes how a FITS file records time: the time scale, the unit, the reference time, and the keywords that say when an observation took place. Eleris.FitsNet has two types for this:
 
-- [`FitsTime`](api/FitsNet.Wcs.FitsTime.md), an instant on a given time scale;
-- [`TimeFrame`](api/FitsNet.Wcs.TimeFrame.md), the description of how the time values of an HDU are to be read.
+- [`FitsTime`](api/Eleris.FitsNet.Wcs.FitsTime.md), an instant on a given time scale;
+- [`TimeFrame`](api/Eleris.FitsNet.Wcs.TimeFrame.md), the description of how the time values of an HDU are to be read.
 
 ## Instants
 
-A [`FitsTime`](api/FitsNet.Wcs.FitsTime.md) is a day number and the seconds into the day, so nanoseconds are kept over any span of years. It knows its [`TimeScale`](api/FitsNet.Wcs.TimeScale.md). You make one from a FITS datetime string (`Parse`, `TryParse`), from a calendar date (`FromDateTime`), or from a Modified Julian Date or a Julian Date (`FromMjd`, `FromJd`, and the `...Parts` variants that keep the precision when the date is given in two parts).
+A [`FitsTime`](api/Eleris.FitsNet.Wcs.FitsTime.md) is a day number and the seconds into the day, so nanoseconds are kept over any span of years. It knows its [`TimeScale`](api/Eleris.FitsNet.Wcs.TimeScale.md). You make one from a FITS datetime string (`Parse`, `TryParse`), from a calendar date (`FromDateTime`), or from a Modified Julian Date or a Julian Date (`FromMjd`, `FromJd`, and the `...Parts` variants that keep the precision when the date is given in two parts).
 
 <!-- example: Time.Instants -->
 ```csharp
@@ -83,7 +83,7 @@ Dates are limited to the years -99999 to +99999, which is what a FITS datetime c
 
 ## Time frames
 
-A [`TimeFrame`](api/FitsNet.Wcs.TimeFrame.md) gathers the time keywords of a header: `TIMESYS`, `TIMEUNIT`, the reference time (`MJDREF`, `JDREF` or `DATEREF`), `TIMEOFFS`, `TREFPOS`, the observation dates (`DATE-OBS`, `DATE-BEG`, `DATE-AVG`, `DATE-END` and their `MJD-` forms), `TSTART`, `TSTOP`, `XPOSURE`, `TELAPSE`, the errors and the resolution. Each is a property: `Scale`, `Unit`, `SecondsPerUnit`, `ReferenceTime`, `ReferencePosition`, `Observation`, `Begin`, `Average`, `End`, `Start`, `Stop`, `Exposure`, `ElapsedTime`, and so on. The properties of an absent keyword are `null`, or the default of the standard where there is one (`TOPOCENTER`, `DE405`, seconds).
+A [`TimeFrame`](api/Eleris.FitsNet.Wcs.TimeFrame.md) gathers the time keywords of a header: `TIMESYS`, `TIMEUNIT`, the reference time (`MJDREF`, `JDREF` or `DATEREF`), `TIMEOFFS`, `TREFPOS`, the observation dates (`DATE-OBS`, `DATE-BEG`, `DATE-AVG`, `DATE-END` and their `MJD-` forms), `TSTART`, `TSTOP`, `XPOSURE`, `TELAPSE`, the errors and the resolution. Each is a property: `Scale`, `Unit`, `SecondsPerUnit`, `ReferenceTime`, `ReferencePosition`, `Observation`, `Begin`, `Average`, `End`, `Start`, `Stop`, `Exposure`, `ElapsedTime`, and so on. The properties of an absent keyword are `null`, or the default of the standard where there is one (`TOPOCENTER`, `DE405`, seconds).
 
 `ToTime(value)` turns a time value of the data into an instant, and `ToValue(instant)` does the reverse.
 

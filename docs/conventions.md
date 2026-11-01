@@ -1,10 +1,10 @@
 # Conventions
 
-The appendices of the standard describe conventions that many files use. FitsNet supports the ones that act on data or headers; the others need nothing from a library.
+The appendices of the standard describe conventions that many files use. Eleris.FitsNet supports the ones that act on data or headers; the others need nothing from a library.
 
 ## Header inheritance
 
-An extension can carry `INHERIT = T` to say that it shares the keywords of the primary header (the telescope, the observer, the dates...). `GetEffectiveHeader` on a [`FitsFile`](api/FitsNet.FitsFile.md) returns the header as an application should see it: the cards of the extension, then the cards of the primary header that it does not define itself. The mandatory keywords and the commentary cards of the primary header are not inherited.
+An extension can carry `INHERIT = T` to say that it shares the keywords of the primary header (the telescope, the observer, the dates...). `GetEffectiveHeader` on a [`FitsFile`](api/Eleris.FitsNet.FitsFile.md) returns the header as an application should see it: the cards of the extension, then the cards of the primary header that it does not define itself. The mandatory keywords and the commentary cards of the primary header are not inherited.
 
 The HDU is not modified. The result is a separate header, so saving the file does not copy the shared keywords into the extension.
 
@@ -32,7 +32,7 @@ Console.WriteLine(file[1].Header.Contains("TELESCOP")); // False
 
 ## Green Bank convention
 
-In a binary table, a value that is the same in every row can be stored once, as a keyword, instead of in a column. The Green Bank convention lets software treat both forms the same way. The extension methods of `GreenBankConvention` apply to a [`BinaryTableHdu`](api/FitsNet.BinaryTableHdu.md):
+In a binary table, a value that is the same in every row can be stored once, as a keyword, instead of in a column. The Green Bank convention lets software treat both forms the same way. The extension methods of `GreenBankConvention` apply to a [`BinaryTableHdu`](api/Eleris.FitsNet.BinaryTableHdu.md):
 
 | Method | Does |
 | --- | --- |
@@ -68,7 +68,7 @@ Console.WriteLine(table.ColumnCount);                               // 2
 
 ## Stokes parameters
 
-The coordinate values of a `STOKES` axis are conventional numbers: 1 is `I`, 2 is `Q`, -1 is `RR`... [`StokesParameters`](api/FitsNet.StokesParameters.md) converts between the numbers and the symbols (`I`, `Q`, `U`, `V`, `RR`, `LL`, `RL`, `LR`, `XX`, `YY`, `XY`, `YX`) and gives the meaning of each.
+The coordinate values of a `STOKES` axis are conventional numbers: 1 is `I`, 2 is `Q`, -1 is `RR`... [`StokesParameters`](api/Eleris.FitsNet.StokesParameters.md) converts between the numbers and the symbols (`I`, `Q`, `U`, `V`, `RR`, `LL`, `RL`, `LR`, `XX`, `YY`, `XY`, `YX`) and gives the meaning of each.
 
 <!-- example: Conventions.Stokes -->
 ```csharp
@@ -84,7 +84,7 @@ Console.WriteLine(StokesParameters.Description("V"));               // Standard 
 
 ## Media types
 
-[`FitsMimeTypes`](api/FitsNet.FitsMimeTypes.md) holds the media types registered for FITS (RFC 4047) and the usual file extensions, for a web server or an upload form: `application/fits` for any FITS file, `image/fits` for a file whose purpose is the image of the primary HDU.
+[`FitsMimeTypes`](api/Eleris.FitsNet.FitsMimeTypes.md) holds the media types registered for FITS (RFC 4047) and the usual file extensions, for a web server or an upload form: `application/fits` for any FITS file, `image/fits` for a file whose purpose is the image of the primary HDU.
 
 <!-- example: Conventions.Mime -->
 ```csharp

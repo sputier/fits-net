@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using DocGen;
-using FitsNet;
+using Eleris.FitsNet;
 
 // Generates the API reference (docs/api) from the assembly and its XML documentation, copies the compiled examples into the guide
 // pages, and keeps the API part of the navigation of mkdocs.yml up to date.
@@ -22,8 +22,8 @@ return generator.Run();
 static string FindRoot()
 {
     for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        if (File.Exists(Path.Combine(dir.FullName, "FitsNet.slnx"))) return dir.FullName;
-    throw new InvalidOperationException("FitsNet.slnx was not found above " + AppContext.BaseDirectory);
+        if (File.Exists(Path.Combine(dir.FullName, "Eleris.FitsNet.slnx"))) return dir.FullName;
+    throw new InvalidOperationException("Eleris.FitsNet.slnx was not found above " + AppContext.BaseDirectory);
 }
 
 namespace DocGen

@@ -1,4 +1,4 @@
-"""Generates tile-compressed images with astropy (reference implementation) for the FitsNet tests.
+"""Generates tile-compressed images with astropy (reference implementation) for the Eleris.FitsNet tests.
 
 Besides the compressed files it writes the expected decompressed pixels as .npy-like raw big-endian dumps
 (<name>.expected) so the C# tests do not need numpy.

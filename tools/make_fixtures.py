@@ -1,4 +1,4 @@
-"""Generates reference FITS files with astropy (the reference implementation) for the FitsNet tests."""
+"""Generates reference FITS files with astropy (the reference implementation) for the Eleris.FitsNet tests."""
 import sys, numpy as np
 from astropy.io import fits
 

@@ -9,7 +9,7 @@ The algorithm is the one of appendix J of the standard, and the values are the s
 
 ## Write and verify
 
-Pass a [`ChecksumPolicy`](api/FitsNet.ChecksumPolicy.md) to `Save`. `VerifyChecksum()` checks one HDU; `VerifyChecksums()` on the file checks all of them. Both return a [`ChecksumResult`](api/FitsNet.ChecksumResult.md), with a [`ChecksumStatus`](api/FitsNet.ChecksumStatus.md) for each keyword.
+Pass a [`ChecksumPolicy`](api/Eleris.FitsNet.ChecksumPolicy.md) to `Save`. `VerifyChecksum()` checks one HDU; `VerifyChecksums()` on the file checks all of them. Both return a [`ChecksumResult`](api/Eleris.FitsNet.ChecksumResult.md), with a [`ChecksumStatus`](api/Eleris.FitsNet.ChecksumStatus.md) for each keyword.
 
 | `ChecksumStatus` | Meaning |
 | --- | --- |

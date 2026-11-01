@@ -1,4 +1,4 @@
-"""Generates FITS files with CHECKSUM/DATASUM (astropy) and reference encoding vectors for the FitsNet tests."""
+"""Generates FITS files with CHECKSUM/DATASUM (astropy) and reference encoding vectors for the Eleris.FitsNet tests."""
 import sys, numpy as np
 from astropy.io import fits
 

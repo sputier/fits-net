@@ -1,10 +1,10 @@
 # Compression
 
-FITS compresses an image or a table by cutting it into **tiles** and compressing each tile on its own. The result is stored in a binary table extension, so a compressed file is still a FITS file, and any tile can be decompressed without the others. FitsNet compresses and decompresses tiles on all the cores.
+FITS compresses an image or a table by cutting it into **tiles** and compressing each tile on its own. The result is stored in a binary table extension, so a compressed file is still a FITS file, and any tile can be decompressed without the others. Eleris.FitsNet compresses and decompresses tiles on all the cores.
 
 ## Compress an image
 
-`ImageHdu.Compress` returns a [`CompressedImageHdu`](api/FitsNet.CompressedImageHdu.md). The source image is not changed. Without options the algorithm is Rice and each tile is one row of the image.
+`ImageHdu.Compress` returns a [`CompressedImageHdu`](api/Eleris.FitsNet.CompressedImageHdu.md). The source image is not changed. Without options the algorithm is Rice and each tile is one row of the image.
 
 <!-- example: Compression.Image -->
 ```csharp
@@ -32,7 +32,7 @@ The compressed HDU is an extension: the file needs a primary HDU before it, and 
 
 ### Algorithms
 
-| [`CompressionAlgorithm`](api/FitsNet.Compression.CompressionAlgorithm.md) | `ZCMPTYPE` | Best for |
+| [`CompressionAlgorithm`](api/Eleris.FitsNet.Compression.CompressionAlgorithm.md) | `ZCMPTYPE` | Best for |
 | --- | --- | --- |
 | `Rice` | `RICE_1` | Integer images (8, 16 and 32 bits). Lossless and fast. The default. |
 | `Gzip1` | `GZIP_1` | Any type; gzip of the big-endian pixels. |
@@ -43,7 +43,7 @@ The compressed HDU is an extension: the file needs a primary HDU before it, and 
 
 ### Options
 
-[`CompressionOptions`](api/FitsNet.Compression.CompressionOptions.md) groups the settings. All have a default.
+[`CompressionOptions`](api/Eleris.FitsNet.Compression.CompressionOptions.md) groups the settings. All have a default.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ Invalid values throw an `ArgumentException` when compressing, before any work is
 
 ## Read a compressed image
 
-A compressed extension is recognized from its keywords, so `FitsFile` gives you a `CompressedImageHdu` where the file has one. It reports the `Axes` and `BitPix` of the image that was compressed, the `Algorithm` (the `ZCMPTYPE` text, such as `RICE_1`) and the `TileShape`. `ReadPixels<T>()` and `ReadRawPixels<T>()` decompress the whole image and behave like those of an ordinary image. `Decompress` returns an ordinary [`ImageHdu`](api/FitsNet.ImageHdu.md) with the original header; to read a region, decompress first and call `ReadRegion<T>()` on the result.
+A compressed extension is recognized from its keywords, so `FitsFile` gives you a `CompressedImageHdu` where the file has one. It reports the `Axes` and `BitPix` of the image that was compressed, the `Algorithm` (the `ZCMPTYPE` text, such as `RICE_1`) and the `TileShape`. `ReadPixels<T>()` and `ReadRawPixels<T>()` decompress the whole image and behave like those of an ordinary image. `Decompress` returns an ordinary [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md) with the original header; to read a region, decompress first and call `ReadRegion<T>()` on the result.
 
 <!-- example: Compression.Read -->
 ```csharp
@@ -135,7 +135,7 @@ The result never depends on the number of threads.
 
 ## Compress a table
 
-[`CompressedTableHdu.Compress`](api/FitsNet.CompressedTableHdu.md) compresses a binary table. Each column is compressed on its own, in tiles of a number of rows. Without options, the library picks Rice for integer columns, gzip for logical, bit and character columns, and `Gzip2` for the others.
+[`CompressedTableHdu.Compress`](api/Eleris.FitsNet.CompressedTableHdu.md) compresses a binary table. Each column is compressed on its own, in tiles of a number of rows. Without options, the library picks Rice for integer columns, gzip for logical, bit and character columns, and `Gzip2` for the others.
 
 <!-- example: Compression.Table -->
 ```csharp
@@ -157,9 +157,9 @@ Console.WriteLine($"{table.RowCount} rows, {table.Header.Get<string>("EXTNAME")}
 ```
 <!-- /example -->
 
-Tables use `Rice` (integer columns only), `Gzip1`, `Gzip2` or `NoCompress`; `Plio` and `HCompress` are for images and are refused with an `ArgumentException`. A [`CompressedTableHdu`](api/FitsNet.CompressedTableHdu.md) cannot be edited: `AddColumn`, `SetColumns` and the other editing methods throw a `NotSupportedException`. Decompress it, edit the table, and compress it again.
+Tables use `Rice` (integer columns only), `Gzip1`, `Gzip2` or `NoCompress`; `Plio` and `HCompress` are for images and are refused with an `ArgumentException`. A [`CompressedTableHdu`](api/Eleris.FitsNet.CompressedTableHdu.md) cannot be edited: `AddColumn`, `SetColumns` and the other editing methods throw a `NotSupportedException`. Decompress it, edit the table, and compress it again.
 
-[`CompressedTableOptions`](api/FitsNet.Compression.CompressedTableOptions.md):
+[`CompressedTableOptions`](api/Eleris.FitsNet.Compression.CompressedTableOptions.md):
 
 | Option | Default | Meaning |
 | --- | --- | --- |

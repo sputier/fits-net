@@ -22,7 +22,7 @@ jobs:
       - name: Build
         run: dotnet build -c Release
       - name: Test (net8.0 and net10.0, without the astropy comparisons)
-        run: dotnet test tests/FitsNet.Tests -c Release --no-build
+        run: dotnet test tests/Eleris.FitsNet.Tests -c Release --no-build
         env:
           FITSNET_SKIP_INTEROP: "1"
 
@@ -44,7 +44,7 @@ jobs:
       - name: The generated pages are up to date
         run: dotnet run -c Release --no-build --project tools/DocGen -- --check
       - name: Run the examples of the guide
-        run: dotnet test tests/FitsNet.Tests -c Release --no-build --filter "FullyQualifiedName~DocumentationExamplesTests"
+        run: dotnet test tests/Eleris.FitsNet.Tests -c Release --no-build --filter "FullyQualifiedName~DocumentationExamplesTests"
         env:
           FITSNET_SKIP_INTEROP: "1"
       - name: Check the Markdown (format, links, anchors)
@@ -70,7 +70,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Pack
-        run: dotnet pack src/FitsNet -c Release -o artifacts
+        run: dotnet pack src/Eleris.FitsNet -c Release -o artifacts
       - name: Check the package and use it from a new project (net8.0 and net10.0)
         run: python tools/verify_package.py artifacts
       - uses: actions/upload-artifact@v4
@@ -93,4 +93,4 @@ jobs:
           python-version: "3.12"
       - run: pip install numpy astropy
       - name: Test with the astropy comparisons
-        run: dotnet test tests/FitsNet.Tests -c Release
+        run: dotnet test tests/Eleris.FitsNet.Tests -c Release
