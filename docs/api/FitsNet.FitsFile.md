@@ -99,6 +99,12 @@ public FitsFile Add(Hdu hdu)
 
 - `hdu` — The HDU to add.
 
+**Exceptions**
+
+- [`ArgumentNullException`](https://learn.microsoft.com/dotnet/api/system.argumentnullexception) — `hdu` is `null`.
+- [`ArgumentException`](https://learn.microsoft.com/dotnet/api/system.argumentexception) — The HDU is already part of this file.
+- [`ObjectDisposedException`](https://learn.microsoft.com/dotnet/api/system.objectdisposedexception) — The file is disposed.
+
 <a id="fitsnet-fitsfile-dispose"></a>
 ### `Dispose()`
 
@@ -130,6 +136,13 @@ public FitsFile Insert(int index, Hdu hdu)
 
 - `index` — The zero-based position of the new HDU.
 - `hdu` — The HDU to insert.
+
+**Exceptions**
+
+- [`ArgumentOutOfRangeException`](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception) — `index` is negative or greater than the number of HDUs.
+- [`ArgumentNullException`](https://learn.microsoft.com/dotnet/api/system.argumentnullexception) — `hdu` is `null`.
+- [`ArgumentException`](https://learn.microsoft.com/dotnet/api/system.argumentexception) — The HDU is already part of this file, a random groups HDU would not be the primary HDU, or the current primary is a random groups HDU and `index` is 0.
+- [`ObjectDisposedException`](https://learn.microsoft.com/dotnet/api/system.objectdisposedexception) — The file is disposed.
 
 <a id="fitsnet-fitsfile-open-system-string-fitsnet-fitsreadoptions"></a>
 ### `Open(string, FitsReadOptions)`
@@ -188,6 +201,8 @@ public void RemoveAt(int index)
 **Exceptions**
 
 - [`InvalidOperationException`](https://learn.microsoft.com/dotnet/api/system.invalidoperationexception) — The next HDU cannot become the primary HDU.
+- [`ArgumentOutOfRangeException`](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception) — `index` is not the index of an HDU.
+- [`ObjectDisposedException`](https://learn.microsoft.com/dotnet/api/system.objectdisposedexception) — The file is disposed.
 
 <a id="fitsnet-fitsfile-save-system-io-stream-fitsnet-checksumpolicy"></a>
 ### `Save(Stream, ChecksumPolicy)`

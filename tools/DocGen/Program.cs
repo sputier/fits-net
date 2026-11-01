@@ -45,6 +45,7 @@ namespace DocGen
                 .ToDictionary(m => (string)m.Attribute("name")!, m => m);
 
             var types = assembly.GetExportedTypes().Where(t => !t.IsNested).OrderBy(t => t.Namespace, StringComparer.Ordinal).ThenBy(t => t.Name, StringComparer.Ordinal).ToList();
+            CheckSupported(assembly);
             _pages = IndexPages(types);
             _md = new MarkdownRenderer(_pages);
 
@@ -121,6 +122,30 @@ namespace DocGen
             return pages;
         }
 
+        /// <summary>Events, protected members and nested public types are not rendered: fail instead of leaving them undocumented.</summary>
+        private void CheckSupported(System.Reflection.Assembly assembly)
+        {
+            const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+            foreach (var t in assembly.GetExportedTypes())
+            {
+                if (t.IsNested) _problems.Add($"{t.FullName} is a nested public type, which the generator does not document");
+                foreach (var m in t.GetMembers(all))
+                {
+                    if (m.Name == "Finalize") continue;
+                    bool exposed = m switch
+                    {
+                        EventInfo e => e.AddMethod?.IsPublic == true || e.AddMethod?.IsFamily == true || e.AddMethod?.IsFamilyOrAssembly == true,
+                        MethodBase mb => mb.IsFamily || mb.IsFamilyOrAssembly,
+                        FieldInfo f => f.IsFamily || f.IsFamilyOrAssembly,
+                        PropertyInfo p => (p.GetMethod ?? p.SetMethod) is { IsFamily: true } or { IsFamilyOrAssembly: true },
+                        _ => false,
+                    };
+                    if (exposed && !t.IsSealed) _problems.Add($"{t.FullName}.{m.Name} is an event or a protected member, which the generator does not document");
+                    else if (m is EventInfo && exposed) _problems.Add($"{t.FullName}.{m.Name} is an event, which the generator does not document");
+                }
+            }
+        }
+
         private static IEnumerable<MemberInfo> Members(Type t)
         {
             const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
@@ -146,24 +171,26 @@ namespace DocGen
             XElement? inherit = e.Element("inheritdoc");
             if (inherit is null) return e;
             string? cref = (string?)inherit.Attribute("cref");
-            string? baseId = cref ?? (member is null ? null : BaseId(member));
-            return baseId is not null ? Doc(baseId, null, depth + 1) ?? e : e;
+            if (cref is not null) return Doc(cref, null, depth + 1) ?? e;
+            // The documented member is kept along the chain, so that an inheritdoc of an inheritdoc finds its own base in turn.
+            MemberInfo? baseMember = member is null ? null : BaseMember(member);
+            return baseMember is not null ? Doc(Signatures.Id(baseMember), baseMember, depth + 1) ?? e : e;
         }
 
-        private static string? BaseId(MemberInfo member)
+        private static MemberInfo? BaseMember(MemberInfo member)
         {
             MethodInfo? method = member switch { MethodInfo mi => mi, PropertyInfo pi => pi.GetMethod ?? pi.SetMethod, _ => null };
-            if (method is null) return null;
+            if (method is null || member.DeclaringType!.IsInterface) return null;
             var baseMethod = method.GetBaseDefinition();
             if (baseMethod.DeclaringType != member.DeclaringType)
-                return member is PropertyInfo ? Signatures.Id(baseMethod.DeclaringType!.GetProperties().First(p => p.GetMethod == baseMethod || p.SetMethod == baseMethod)) : Signatures.Id(baseMethod);
+                return member is PropertyInfo ? baseMethod.DeclaringType!.GetProperties().First(p => p.GetMethod == baseMethod || p.SetMethod == baseMethod) : baseMethod;
             foreach (var i in member.DeclaringType!.GetInterfaces())
             {
                 var map = member.DeclaringType.GetInterfaceMap(i);
                 int at = Array.IndexOf(map.TargetMethods, method);
                 if (at < 0) continue;
                 var target = map.InterfaceMethods[at];
-                return member is PropertyInfo ? Signatures.Id(i.GetProperties().First(p => p.GetMethod == target || p.SetMethod == target)) : Signatures.Id(target);
+                return member is PropertyInfo ? i.GetProperties().First(p => p.GetMethod == target || p.SetMethod == target) : target;
             }
             return null;
         }
@@ -190,10 +217,10 @@ namespace DocGen
             if (t.IsEnum)
             {
                 sb.Append("## Members\n\n| Name | Value | Description |\n| --- | ---: | --- |\n");
-                foreach (var f in Members(t).OfType<FieldInfo>().OrderBy(f => Convert.ToInt64(f.GetRawConstantValue())))
+                foreach (var f in Members(t).OfType<FieldInfo>().OrderBy(EnumValue).ThenBy(f => f.Name, StringComparer.Ordinal))
                 {
                     var fdoc = Doc(Signatures.Id(f), f);
-                    sb.Append($"| <a id=\"{Signatures.Anchor(Signatures.Id(f))}\"></a>`{f.Name}` | {Convert.ToInt64(f.GetRawConstantValue())} | {_md.OneLine(fdoc?.Element("summary"), page)} |\n");
+                    sb.Append($"| <a id=\"{Signatures.Anchor(Signatures.Id(f))}\"></a>`{f.Name}` | {EnumValue(f).ToString(System.Globalization.CultureInfo.InvariantCulture)} | {_md.OneLine(fdoc?.Element("summary"), page)} |\n");
                     if (fdoc?.Element("summary") is null) _warnings.Add($"{title}.{f.Name} has no summary");
                 }
                 sb.Append('\n');
@@ -203,11 +230,11 @@ namespace DocGen
             var members = Members(t).ToList();
             var groups = new (string Name, IEnumerable<MemberInfo> Items)[]
             {
-                ("Constructors", members.OfType<ConstructorInfo>().OrderBy(c => c.GetParameters().Length)),
+                ("Constructors", members.OfType<ConstructorInfo>().OrderBy(c => c.GetParameters().Length).ThenBy(c => Signatures.Constructor(c), StringComparer.Ordinal)),
                 ("Fields", members.OfType<FieldInfo>().OrderBy(f => f.Name, StringComparer.Ordinal)),
-                ("Properties", members.OfType<PropertyInfo>().OrderBy(p => p.GetIndexParameters().Length).ThenBy(p => p.Name, StringComparer.Ordinal)),
+                ("Properties", members.OfType<PropertyInfo>().OrderBy(p => p.GetIndexParameters().Length).ThenBy(p => p.Name, StringComparer.Ordinal).ThenBy(p => Signatures.Property(p), StringComparer.Ordinal)),
                 ("Methods", members.OfType<MethodInfo>().Where(m => !m.Name.StartsWith("op_", StringComparison.Ordinal)).OrderBy(m => m.Name, StringComparer.Ordinal).ThenBy(m => m.GetParameters().Length).ThenBy(m => Signatures.Method(m), StringComparer.Ordinal)),
-                ("Operators", members.OfType<MethodInfo>().Where(m => m.Name.StartsWith("op_", StringComparison.Ordinal)).OrderBy(m => m.Name, StringComparer.Ordinal)),
+                ("Operators", members.OfType<MethodInfo>().Where(m => m.Name.StartsWith("op_", StringComparison.Ordinal)).OrderBy(m => m.Name, StringComparer.Ordinal).ThenBy(m => Signatures.Method(m), StringComparer.Ordinal)),
             };
 
             foreach (var (name, items) in groups)
@@ -234,6 +261,9 @@ namespace DocGen
             AppendInherited(sb, t, page);
             return Finish(sb);
         }
+
+        /// <summary>The value of an enum member whatever its underlying type (decimal holds every integral type, ulong included).</summary>
+        private static decimal EnumValue(FieldInfo f) => Convert.ToDecimal(f.GetRawConstantValue(), System.Globalization.CultureInfo.InvariantCulture);
 
         private static string Singular(string group) => group switch { "Properties" => "Property", _ => group.TrimEnd((char)115) };
 
@@ -275,11 +305,19 @@ namespace DocGen
         private static string ShortSignature(MemberInfo m) => m switch
         {
             ConstructorInfo c => $"{c.DeclaringType!.Name.Split('`')[0]}({string.Join(", ", c.GetParameters().Select(p => Signatures.TypeName(p.ParameterType)))})",
-            MethodInfo mi when mi.Name.StartsWith("op_", StringComparison.Ordinal) => Signatures.Method(mi)[7..].Split('(')[0] + "(" + string.Join(", ", mi.GetParameters().Select(p => Signatures.TypeName(p.ParameterType))) + ")",
+            MethodInfo mi when mi.Name.StartsWith("op_", StringComparison.Ordinal) => OperatorHeading(mi) + "(" + string.Join(", ", mi.GetParameters().Select(p => Signatures.TypeName(p.ParameterType))) + ")",
             MethodInfo mi => $"{mi.Name}{(mi.IsGenericMethod ? "<" + string.Join(", ", mi.GetGenericArguments().Select(a => a.Name)) + ">" : "")}({string.Join(", ", mi.GetParameters().Select(p => Signatures.TypeName(p.ParameterType)))})",
             PropertyInfo { } p when p.GetIndexParameters().Length > 0 => $"this[{string.Join(", ", p.GetIndexParameters().Select(i => Signatures.TypeName(i.ParameterType)))}]",
             _ => m.Name,
         };
+
+        /// <summary>The declaration of an operator without its accessibility and parameters, e.g. "static bool operator ==".</summary>
+        private static string OperatorHeading(MethodInfo mi)
+        {
+            const string accessibility = "public ";
+            string declaration = Signatures.Method(mi).Split('(')[0];
+            return declaration.StartsWith(accessibility, StringComparison.Ordinal) ? declaration[accessibility.Length..] : declaration;
+        }
 
         private void MemberSection(StringBuilder sb, Type owner, MemberInfo m, string page)
         {

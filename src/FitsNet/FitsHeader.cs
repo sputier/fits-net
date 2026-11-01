@@ -171,6 +171,8 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     /// Inserts a card at an index.
     /// </summary>
     /// <exception cref="ArgumentException">The card is the <c>END</c> card, which is implicit.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="card"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative or greater than the number of cards.</exception>
     /// <returns>This header, so that calls can be chained.</returns>
     /// <param name="index">The zero-based position of the new card.</param>
     /// <param name="card">The card to insert.</param>
@@ -207,6 +209,7 @@ public sealed class FitsHeader : IEnumerable<FitsCard>
     }
 
     /// <summary>Removes the card at an index.</summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not the index of a card.</exception>
     /// <param name="index">The zero-based index of the card.</param>
     public void RemoveAt(int index)
     {
