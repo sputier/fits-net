@@ -1,0 +1,78 @@
+name: Release
+
+# Publishes Eleris.FitsNet to nuget.org when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
+# The tag must match <Version> in src/FitsNet/FitsNet.csproj.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag matches the version of the project
+        id: version
+        run: |
+          version=$(dotnet msbuild src/FitsNet -getProperty:Version -p:TargetFramework=net10.0)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not match the project version v$version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: dotnet build -c Release
+      - name: Test (net8.0 and net10.0, without the astropy comparisons)
+        run: dotnet test tests/FitsNet.Tests -c Release --no-build
+        env:
+          FITSNET_SKIP_INTEROP: "1"
+      - name: The generated documentation is up to date
+        run: dotnet run -c Release --no-build --project tools/DocGen -- --check
+      - name: Pack
+        run: dotnet pack src/FitsNet -c Release --no-build -o artifacts
+      - name: Check the package and use it from a new project
+        run: python tools/verify_package.py artifacts ${{ steps.version.outputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: artifacts/
+          if-no-files-found: error
+
+  publish:
+    needs: pack
+    runs-on: ubuntu-latest
+    # Add required reviewers to this environment in the repository settings to approve each publication by hand.
+    environment: nuget
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget-package
+          path: artifacts
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Push to nuget.org (the .snupkg symbols follow the .nupkg)
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      - name: GitHub release
+        run: gh release create "$GITHUB_REF_NAME" artifacts/* --title "$GITHUB_REF_NAME" --generate-notes ${{ contains(needs.pack.outputs.version, '-') && '--prerelease' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}

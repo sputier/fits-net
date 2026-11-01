@@ -86,3 +86,7 @@ dotnet run -c Release --project benchmarks/FitsNet.Benchmarks -- --filter "*" --
 
 Thread safety: a `FitsFile` opened with `FitsFile.Open` reads through one file stream and must not be used from several threads at once.
 Compression and decompression parallelise internally and are safe to call from several threads on different objects.
+
+## License
+
+FitsNet is released under the [MIT license](LICENSE). The NuGet package is `Eleris.FitsNet`; [RELEASING.md](RELEASING.md) describes how a version is published.
