@@ -23,6 +23,52 @@ internal abstract class DataSource
 
     public abstract void CopyTo(Stream destination);
 
+    /// <summary>The number of values of <paramref name="elementSize"/> bytes that the data holds, as the length of an array.</summary>
+    public int ElementCount(int elementSize)
+    {
+        if (Length % elementSize != 0) throw new FitsException("Data length is not a multiple of the element size.");
+        if (Length / elementSize > Array.MaxLength) throw new FitsException($"HDU data holds more than {Array.MaxLength} values, more than an array can hold.");
+        return (int)(Length / elementSize);
+    }
+
+    /// <summary>Receives a part of the data: whole elements, <paramref name="firstElement"/> being the index of the first.</summary>
+    public delegate void ChunkReader(ReadOnlySpan<byte> bytes, int firstElement);
+
+    // Small enough to stay in the cache between the read and the conversion, large enough to make the reads of a file cheap.
+    private const int ChunkBytes = 256 * 1024;
+
+    /// <summary>
+    /// Passes the data to <paramref name="reader"/> in chunks of whole elements. Data in memory is not copied;
+    /// data in a file is read through one small buffer instead of a copy of the whole data.
+    /// </summary>
+    public void ReadInChunks(int elementSize, ChunkReader reader)
+    {
+        int count = ElementCount(elementSize);
+        if (count == 0) return;
+        int perChunk = Math.Max(1, ChunkBytes / elementSize);
+        if (this is not StreamDataSource)
+        {
+            ReadOnlySpan<byte> all = ReadMemory().Span;
+            for (int first = 0; first < count; first += perChunk)
+                reader(all.Slice(first * elementSize, Math.Min(perChunk, count - first) * elementSize), first);
+            return;
+        }
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(perChunk * elementSize);
+        try
+        {
+            for (int first = 0; first < count; first += perChunk)
+            {
+                int length = Math.Min(perChunk, count - first) * elementSize;
+                ReadRange((long)first * elementSize, buffer.AsSpan(0, length));
+                reader(buffer.AsSpan(0, length), first);
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
     public static DataSource Empty { get; } = new MemoryDataSource([]);
 }
 

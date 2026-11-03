@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Eleris.FitsNet;
@@ -262,7 +264,7 @@ public sealed class ImageHdu : Hdu
         var layout = Layout;
         if (typeof(T) != layout.BitPix.NativeType())
             throw new InvalidOperationException($"BITPIX {(int)layout.BitPix} stores {layout.BitPix.NativeType().Name}, not {typeof(T).Name}.");
-        return BigEndian.ToArray<T>(Source.ReadMemory().Span);
+        return BigEndian.ReadArray<T>(Source);
     }
 
     /// <summary>
@@ -280,44 +282,33 @@ public sealed class ImageHdu : Hdu
         Type type = typeof(T);
 
         if (type == layout.BitPix.NativeType() && bscale == 1 && bzero == 0) return ReadRawPixels<T>();
-        if (type == typeof(double)) return (T[])(object)ReadScaled(layout, bscale, bzero);
-        if (type == typeof(float))
-        {
-            double[] d = ReadScaled(layout, bscale, bzero);
-            var f = new float[d.Length];
-            for (int i = 0; i < f.Length; i++) f[i] = (float)d[i];
-            return (T[])(object)f;
-        }
+        if (type == typeof(double)) return (T[])(object)ReadScaled<double>(layout, bscale, bzero);
+        if (type == typeof(float)) return (T[])(object)ReadScaled<float>(layout, bscale, bzero);
 
         if (bscale == 1)
         {
             if (type == typeof(sbyte) && layout.BitPix == BitPix.Byte && bzero == -128)
             {
-                ReadOnlySpan<byte> raw = Source.ReadMemory().Span;
-                var r = new sbyte[raw.Length];
-                for (int i = 0; i < r.Length; i++) r[i] = unchecked((sbyte)(raw[i] ^ 0x80));
+                var r = new sbyte[Source.ElementCount(1)];
+                Source.ReadInChunks(1, (bytes, first) =>
+                {
+                    Span<byte> part = MemoryMarshal.AsBytes(r.AsSpan(first, bytes.Length));
+                    bytes.CopyTo(part);
+                    BigEndian.Xor(part, (byte)0x80);
+                });
                 return (T[])(object)r;
             }
             if (type == typeof(ushort) && layout.BitPix == BitPix.Int16 && bzero == 32768)
             {
-                short[] raw = BigEndian.ToArray<short>(Source.ReadMemory().Span);
-                var r = new ushort[raw.Length];
-                for (int i = 0; i < r.Length; i++) r[i] = unchecked((ushort)(raw[i] ^ 0x8000));
-                return (T[])(object)r;
+                return (T[])(object)BigEndian.ReadArrayXor<ushort>(Source, 0x8000);
             }
             if (type == typeof(uint) && layout.BitPix == BitPix.Int32 && bzero == 2147483648.0)
             {
-                int[] raw = BigEndian.ToArray<int>(Source.ReadMemory().Span);
-                var r = new uint[raw.Length];
-                for (int i = 0; i < r.Length; i++) r[i] = unchecked((uint)(raw[i] ^ int.MinValue));
-                return (T[])(object)r;
+                return (T[])(object)BigEndian.ReadArrayXor<uint>(Source, 0x80000000u);
             }
             if (type == typeof(ulong) && layout.BitPix == BitPix.Int64 && bzero == 9223372036854775808.0)
             {
-                long[] raw = BigEndian.ToArray<long>(Source.ReadMemory().Span);
-                var r = new ulong[raw.Length];
-                for (int i = 0; i < r.Length; i++) r[i] = unchecked((ulong)(raw[i] ^ long.MinValue));
-                return (T[])(object)r;
+                return (T[])(object)BigEndian.ReadArrayXor<ulong>(Source, 0x8000000000000000ul);
             }
         }
 
@@ -325,18 +316,80 @@ public sealed class ImageHdu : Hdu
             $"Cannot read BITPIX {(int)layout.BitPix} data with BSCALE={bscale}, BZERO={bzero} as {type.Name}; use double or float.");
     }
 
-    private double[] ReadScaled(HduLayout layout, double bscale, double bzero)
+    private TOut[] ReadScaled<TOut>(HduLayout layout, double bscale, double bzero) where TOut : unmanaged, IFloatingPointIeee754<TOut>
     {
         long? blank = !layout.BitPix.IsFloatingPoint() && Header.TryGetValue("BLANK", out long b) ? b : null;
-        double[] values = PixelConvert.ToDoubles(Source.ReadMemory().Span, layout.BitPix, blank);
-        if (bscale != 1 || bzero != 0)
-            for (int i = 0; i < values.Length; i++) values[i] = bzero + bscale * values[i];
-        return values;
+        return PixelConvert.ToFloating<TOut>(Source, layout.BitPix, blank, bscale, bzero);
     }
 }
 
 internal static class PixelConvert
 {
+    // Elements converted at a time: the values swapped from a chunk of the data stay in the cache while they are converted.
+    private const int ConversionChunk = 32 * 1024;
+
+    /// <summary>
+    /// Physical values (<c>bzero + bscale * stored</c>, the integers equal to <paramref name="blank"/> becoming NaN) as <c>float</c> or
+    /// <c>double</c>, converted a chunk at a time without any intermediate array. The arithmetic is done in double precision
+    /// whatever the result type, so that a float result is the rounding of the double one.
+    /// </summary>
+    public static TOut[] ToFloating<TOut>(DataSource source, BitPix bitPix, long? blank, double bscale, double bzero)
+        where TOut : unmanaged, IFloatingPointIeee754<TOut>
+    {
+        var result = GC.AllocateUninitializedArray<TOut>(source.ElementCount(bitPix.BytesPerElement()));
+        switch (bitPix)
+        {
+            case BitPix.Byte: Convert<byte, TOut>(source, result, blank, bscale, bzero); break;
+            case BitPix.Int16: Convert<short, TOut>(source, result, blank, bscale, bzero); break;
+            case BitPix.Int32: Convert<int, TOut>(source, result, blank, bscale, bzero); break;
+            case BitPix.Int64: Convert<long, TOut>(source, result, blank, bscale, bzero); break;
+            case BitPix.Single: Convert<float, TOut>(source, result, null, bscale, bzero); break;
+            default: Convert<double, TOut>(source, result, null, bscale, bzero); break;
+        }
+        return result;
+    }
+
+    private static void Convert<TIn, TOut>(DataSource source, TOut[] result, long? blank, double bscale, double bzero)
+        where TIn : unmanaged, INumberBase<TIn>
+        where TOut : unmanaged, IFloatingPointIeee754<TOut>
+    {
+        int size = Unsafe.SizeOf<TIn>();
+        bool scaled = bscale != 1 || bzero != 0;
+        TIn[] buffer = ArrayPool<TIn>.Shared.Rent(Math.Min(result.Length, ConversionChunk));
+        try
+        {
+            source.ReadInChunks(size, (bytes, first) =>
+            {
+                for (int done = 0; done < bytes.Length / size; done += ConversionChunk)
+                {
+                    int n = Math.Min(ConversionChunk, bytes.Length / size - done);
+                    Span<TIn> values = buffer.AsSpan(0, n);
+                    BigEndian.Read(bytes.Slice(done * size, n * size), values);
+                    Span<TOut> output = result.AsSpan(first + done, n);
+                    if (blank is { } b) ConvertBlank<TIn, TOut>(values, output, b, scaled, bscale, bzero);
+                    else if (scaled) for (int i = 0; i < n; i++) output[i] = TOut.CreateTruncating(bzero + bscale * double.CreateTruncating(values[i]));
+                    else for (int i = 0; i < n; i++) output[i] = TOut.CreateTruncating(double.CreateTruncating(values[i]));
+                }
+            });
+        }
+        finally
+        {
+            ArrayPool<TIn>.Shared.Return(buffer);
+        }
+    }
+
+    private static void ConvertBlank<TIn, TOut>(ReadOnlySpan<TIn> values, Span<TOut> output, long blank, bool scaled, double bscale, double bzero)
+        where TIn : unmanaged, INumberBase<TIn>
+        where TOut : unmanaged, IFloatingPointIeee754<TOut>
+    {
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (long.CreateTruncating(values[i]) == blank) { output[i] = TOut.NaN; continue; }
+            double v = double.CreateTruncating(values[i]);
+            output[i] = TOut.CreateTruncating(scaled ? bzero + bscale * v : v);
+        }
+    }
+
     /// <summary>Raw values as doubles; integers equal to <paramref name="blank"/> become NaN.</summary>
     public static double[] ToDoubles(ReadOnlySpan<byte> data, BitPix bitPix, long? blank)
     {
