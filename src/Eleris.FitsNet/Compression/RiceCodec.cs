@@ -21,12 +21,20 @@ internal static class RiceCodec
     /// </summary>
     public static int[] Decode(byte[] c, int count, int blockSize, int bytePix)
     {
+        var result = new int[count];
+        Decode(c, result, blockSize, bytePix);
+        return result;
+    }
+
+    /// <summary>Decodes into <paramref name="result"/>, which holds as many pixels as the tile (its length is the pixel count).</summary>
+    public static void Decode(byte[] c, Span<int> result, int blockSize, int bytePix)
+    {
         var (fsbits, fsmax) = Parameters(bytePix);
         if (blockSize < 1) throw new FitsException("The Rice block size must be positive.");
         int bbits = 1 << fsbits;
         uint mask = Mask(bytePix);
-        var result = new int[count];
-        if (count == 0) return result;
+        int count = result.Length;
+        if (count == 0) return;
         bool signed16 = bytePix == 2;
 
         int pos = 0;
@@ -108,7 +116,6 @@ internal static class RiceCodec
                 }
             }
         }
-        return result;
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]

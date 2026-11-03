@@ -91,20 +91,52 @@ internal sealed class TileGrid
         return n;
     }
 
-    /// <summary>Copies a tile from the image into <paramref name="tile"/> (or back, when <paramref name="toImage"/>).</summary>
-    public void Copy(Array image, Array tile, long[] origin, long[] extent, bool toImage)
+    /// <summary>
+    /// Copies a tile of native values into the big-endian bytes of the whole image, row by row. Tiles never overlap, so several tiles
+    /// can be written at the same time.
+    /// </summary>
+    public void WriteTile<T>(Span<byte> image, ReadOnlySpan<T> tile, long[] origin, long[] extent) where T : unmanaged
     {
-        if (Axes.Length == 0) return;
+        int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+        foreach (var (imageOffset, tileOffset, run) in Runs(origin, extent))
+            BigEndian.Write(tile.Slice((int)tileOffset, (int)run), image.Slice(checked((int)(imageOffset * size)), (int)run * size));
+    }
+
+    /// <summary>Copies the big-endian bytes of a tile as they are into the big-endian bytes of the whole image.</summary>
+    public void WriteTileBytes(Span<byte> image, ReadOnlySpan<byte> tile, int elementSize, long[] origin, long[] extent)
+    {
+        foreach (var (imageOffset, tileOffset, run) in Runs(origin, extent))
+            tile.Slice((int)tileOffset * elementSize, (int)run * elementSize).CopyTo(image.Slice(checked((int)(imageOffset * elementSize)), (int)run * elementSize));
+    }
+
+    /// <summary>Copies a tile out of the big-endian bytes of the whole image, as native values.</summary>
+    public void ReadTile<T>(ReadOnlySpan<byte> image, Span<T> tile, long[] origin, long[] extent) where T : unmanaged
+    {
+        int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+        foreach (var (imageOffset, tileOffset, run) in Runs(origin, extent))
+            BigEndian.Read(image.Slice(checked((int)(imageOffset * size)), (int)run * size), tile.Slice((int)tileOffset, (int)run));
+    }
+
+    /// <summary>Copies the big-endian bytes of a tile as they are, for the algorithms that compress bytes.</summary>
+    public void ReadTileBytes(ReadOnlySpan<byte> image, Span<byte> tile, int elementSize, long[] origin, long[] extent)
+    {
+        foreach (var (imageOffset, tileOffset, run) in Runs(origin, extent))
+            image.Slice(checked((int)(imageOffset * elementSize)), (int)run * elementSize).CopyTo(tile.Slice((int)tileOffset * elementSize, (int)run * elementSize));
+    }
+
+    /// <summary>The contiguous runs of a tile: where each starts in the image and in the tile (in pixels), and its length.</summary>
+    private IEnumerable<(long ImageOffset, long TileOffset, long Run)> Runs(long[] origin, long[] extent)
+    {
+        if (Axes.Length == 0) yield break;
         long run = extent[0];
-        if (run == 0) return;
+        if (run == 0) yield break;
         var idx = new long[Axes.Length]; // position within the tile for axes 1..n-1
         long tileOffset = 0;
         while (true)
         {
             long imageOffset = origin[0];
             for (int d = 1; d < Axes.Length; d++) imageOffset += (origin[d] + idx[d]) * _strides[d];
-            if (toImage) Array.Copy(tile, tileOffset, image, imageOffset, run);
-            else Array.Copy(image, imageOffset, tile, tileOffset, run);
+            yield return (imageOffset, tileOffset, run);
             tileOffset += run;
 
             int axis = 1;
@@ -113,7 +145,7 @@ internal sealed class TileGrid
                 if (++idx[axis] < extent[axis]) break;
                 idx[axis] = 0;
             }
-            if (axis >= Axes.Length) break;
+            if (axis >= Axes.Length) yield break;
         }
     }
 }

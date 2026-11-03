@@ -78,6 +78,13 @@ internal static class Quantizer
     public static double[] Dequantize(int[] ints, double scale, double zero, int? blank, QuantizationMethod method, int tileIndex, int ditherSeed)
     {
         var result = new double[ints.Length];
+        Dequantize(ints, result, scale, zero, blank, method, tileIndex, ditherSeed);
+        return result;
+    }
+
+    /// <summary>Like the array version, writing into <paramref name="result"/> (as long as <paramref name="ints"/>).</summary>
+    public static void Dequantize(ReadOnlySpan<int> ints, Span<double> result, double scale, double zero, int? blank, QuantizationMethod method, int tileIndex, int ditherSeed)
+    {
         bool dither = UsesDither(method);
         var state = dither ? new DitherState(tileIndex, ditherSeed) : default;
         for (int i = 0; i < ints.Length; i++)
@@ -89,13 +96,19 @@ internal static class Quantizer
             else if (dither) result[i] = (v - r + 0.5) * scale + zero;
             else result[i] = v * scale + zero;
         }
-        return result;
     }
 
     /// <summary>Like <see cref="Dequantize(int[], double, double, int?, QuantizationMethod, int, int)"/> for single precision output.</summary>
     public static float[] DequantizeToSingle(int[] ints, double scale, double zero, int? blank, QuantizationMethod method, int tileIndex, int ditherSeed)
     {
         var result = new float[ints.Length];
+        DequantizeToSingle(ints, result, scale, zero, blank, method, tileIndex, ditherSeed);
+        return result;
+    }
+
+    /// <summary>Like the array version, writing into <paramref name="result"/> (as long as <paramref name="ints"/>).</summary>
+    public static void DequantizeToSingle(ReadOnlySpan<int> ints, Span<float> result, double scale, double zero, int? blank, QuantizationMethod method, int tileIndex, int ditherSeed)
+    {
         bool dither = UsesDither(method);
         var state = dither ? new DitherState(tileIndex, ditherSeed) : default;
         for (int i = 0; i < ints.Length; i++)
@@ -107,17 +120,17 @@ internal static class Quantizer
             else if (dither) result[i] = (float)((v - r + 0.5) * scale + zero);
             else result[i] = (float)(v * scale + zero);
         }
-        return result;
     }
 
     /// <summary>
-    /// Quantizes a tile (<paramref name="width"/> pixels per row). Returns false when the tile cannot be quantized
-    /// reliably (no measurable noise, or a dynamic range too large for 32 bits); the caller then stores it losslessly.
+    /// Quantizes a tile (<paramref name="width"/> pixels per row) into <paramref name="ints"/>, which holds as many values as the tile.
+    /// Returns false when the tile cannot be quantized reliably (no measurable noise, or a dynamic range too large for 32 bits);
+    /// the caller then stores it losslessly.
     /// </summary>
-    public static bool TryQuantize(double[] values, int width, double qlevel, QuantizationMethod method, int tileIndex, int ditherSeed,
-        out int[] ints, out double scale, out double zero, out bool hasNaN)
+    public static bool TryQuantize(ReadOnlySpan<double> values, Span<int> ints, int width, double qlevel, QuantizationMethod method, int tileIndex, int ditherSeed,
+        out double scale, out double zero, out bool hasNaN)
     {
-        ints = [];
+        if (ints.Length != values.Length) throw new ArgumentException("There must be one integer for each value.", nameof(ints));
         scale = 1;
         zero = 0;
         hasNaN = false;
@@ -158,7 +171,6 @@ internal static class Quantizer
 
         scale = delta;
         zero = min;
-        ints = new int[values.Length];
         bool dither = UsesDither(method);
         var state = dither ? new DitherState(tileIndex, ditherSeed) : default;
         for (int i = 0; i < values.Length; i++)
@@ -181,9 +193,21 @@ internal static class Quantizer
     /// values, scaled so that it estimates the standard deviation of Gaussian noise). Tiles narrower than 5 pixels use the first
     /// differences of consecutive pixels instead.
     /// </summary>
-    internal static double EstimateNoise(double[] values, int width)
+    internal static double EstimateNoise(ReadOnlySpan<double> values, int width)
     {
-        var diffs = new double[values.Length];
+        double[] diffs = System.Buffers.ArrayPool<double>.Shared.Rent(values.Length);
+        try
+        {
+            return EstimateNoise(values, width, diffs);
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<double>.Shared.Return(diffs);
+        }
+    }
+
+    private static double EstimateNoise(ReadOnlySpan<double> values, int width, double[] diffs)
+    {
         int count = 0;
         double scale = 0.6052697;
         if (width < 5)
