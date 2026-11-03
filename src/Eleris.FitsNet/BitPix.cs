@@ -96,6 +96,25 @@ internal static class BigEndian
         }
     }
 
+    /// <summary>Writes native values as big-endian bytes, in one pass.</summary>
+    public static void Write<T>(ReadOnlySpan<T> values, Span<byte> destination) where T : unmanaged
+    {
+        int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+        if (destination.Length != values.Length * size) throw new ArgumentException("The destination does not match the values.", nameof(destination));
+        if (size == 1 || !BitConverter.IsLittleEndian)
+        {
+            MemoryMarshal.AsBytes(values).CopyTo(destination);
+            return;
+        }
+        switch (size)
+        {
+            case 2: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<T, ushort>(values), MemoryMarshal.Cast<byte, ushort>(destination)); break;
+            case 4: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<T, uint>(values), MemoryMarshal.Cast<byte, uint>(destination)); break;
+            case 8: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<T, ulong>(values), MemoryMarshal.Cast<byte, ulong>(destination)); break;
+            default: throw new NotSupportedException($"Unsupported element size {size}.");
+        }
+    }
+
     public static void Xor<T>(Span<T> values, T mask) where T : unmanaged, IBitwiseOperators<T, T, T>
     {
         int i = 0;

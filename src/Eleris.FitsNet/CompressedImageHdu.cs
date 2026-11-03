@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using Eleris.FitsNet.Compression;
 
@@ -198,43 +199,80 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         bool quantized = p.BitPix.IsFloatingPoint() && p.Quant != QuantizationMethod.None
                          && (scales is not null || Header.Contains("ZSCALE"));
 
-        Array image;
+        byte[] image;
         try
         {
-        image = Alloc(p.BitPix, pixels);
+        // Every tile writes its own pixels, big-endian, straight into the bytes of the result: no array of the whole image to swap afterwards.
+        image = GC.AllocateUninitializedArray<byte>((int)(pixels * elementSize));
         RunTiles(grid.TileCount, maxDegreeOfParallelism, grid.MaxTilePixels, t =>
         {
             grid.GetTile(t, out var origin, out var extent);
             int n = TileGrid.CountInt(extent);
             byte[] cell = CellBytes(comp, (int)t);
-            Array tile;
             if (cell.Length == 0 && raw is not null && CellBytes(raw, (int)t) is { Length: > 0 } uncompressed)
             {
-                tile = FromBigEndian(uncompressed, p.BitPix, n);
+                WriteBytes(grid, image, uncompressed, elementSize, n, origin, extent);
             }
             else if (p.BitPix.IsFloatingPoint() && cell.Length == 0 && gz is not null && CellBytes(gz, (int)t) is { Length: > 0 } gzCell)
             {
-                tile = FromBigEndian(GzipCodec.Decompress(gzCell, (long)n * elementSize), p.BitPix, n);
+                WriteBytes(grid, image, GzipCodec.Decompress(gzCell, (long)n * elementSize), elementSize, n, origin, extent);
             }
             else if (quantized)
             {
-                int[] ints = DecodeInts(p, cell, comp, (int)t, n, extent, 4);
-                double scale = scales is not null ? scales[t] : hScale;
-                double zero = zeros is not null ? zeros[t] : hZero;
-                int? blank = blanks is not null ? (int)blanks[t] : hBlank; // null checking only when ZBLANK is defined
-                tile = p.BitPix == BitPix.Double
-                    ? Quantizer.Dequantize(ints, scale, zero, blank, p.Quant, (int)t, p.DitherSeed)
-                    : Quantizer.DequantizeToSingle(ints, scale, zero, blank, p.Quant, (int)t, p.DitherSeed);
+                int[] ints = DecodeIntsPooled(p, cell, comp, (int)t, n, extent, 4, out bool pooled);
+                try
+                {
+                    double scale = scales is not null ? scales[t] : hScale;
+                    double zero = zeros is not null ? zeros[t] : hZero;
+                    int? blank = blanks is not null ? (int)blanks[t] : hBlank; // null checking only when ZBLANK is defined
+                    if (p.BitPix == BitPix.Double)
+                    {
+                        double[] output = ArrayPool<double>.Shared.Rent(n);
+                        try
+                        {
+                            Quantizer.Dequantize(ints.AsSpan(0, n), output.AsSpan(0, n), scale, zero, blank, p.Quant, (int)t, p.DitherSeed);
+                            grid.WriteTile<double>(image, output.AsSpan(0, n), origin, extent);
+                        }
+                        finally
+                        {
+                            ArrayPool<double>.Shared.Return(output);
+                        }
+                    }
+                    else
+                    {
+                        float[] output = ArrayPool<float>.Shared.Rent(n);
+                        try
+                        {
+                            Quantizer.DequantizeToSingle(ints.AsSpan(0, n), output.AsSpan(0, n), scale, zero, blank, p.Quant, (int)t, p.DitherSeed);
+                            grid.WriteTile<float>(image, output.AsSpan(0, n), origin, extent);
+                        }
+                        finally
+                        {
+                            ArrayPool<float>.Shared.Return(output);
+                        }
+                    }
+                }
+                finally
+                {
+                    if (pooled) ArrayPool<int>.Shared.Return(ints);
+                }
             }
             else if (p.BitPix.IsFloatingPoint() || p.Algorithm is "GZIP_1" or "GZIP_2" or "NOCOMPRESS" && p.BitPix == BitPix.Int64)
             {
-                tile = FromBigEndian(RawBytes(p, cell, n, elementSize), p.BitPix, n);
+                WriteBytes(grid, image, RawBytes(p, cell, n, elementSize), elementSize, n, origin, extent);
             }
             else
             {
-                tile = IntsToTyped(DecodeInts(p, cell, comp, (int)t, n, extent, elementSize), p.BitPix);
+                int[] ints = DecodeIntsPooled(p, cell, comp, (int)t, n, extent, elementSize, out bool pooled);
+                try
+                {
+                    WriteInts(grid, image, ints.AsSpan(0, n), p.BitPix, origin, extent);
+                }
+                finally
+                {
+                    if (pooled) ArrayPool<int>.Shared.Return(ints);
+                }
             }
-            grid.Copy(image, tile, origin, extent, toImage: true);
         });
         }
         catch (OutOfMemoryException e)
@@ -247,7 +285,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         header.ReplaceAll(Header.Where(c => c.Kind != FitsCardKind.Value || KeepOnDecompress(c.Keyword)).ToList());
         RebuildMandatory(header, true, null, p.BitPix, p.Axes, 0, 1, false, false);
         if (header.Get<string>("EXTNAME") == "COMPRESSED_IMAGE") header.Remove("EXTNAME"); // the default name given on compression
-        return new ImageHdu(header, new MemoryDataSource(ToBigEndian(image)));
+        return new ImageHdu(header, new MemoryDataSource(image));
     }
 
     private static readonly string[] CompressionKeys =
@@ -274,6 +312,92 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         _ => throw new FitsException($"Floating point data compressed with {p.Algorithm} must be quantized (ZSCALE is missing)."),
     };
 
+    /// <summary>
+    /// Decodes a tile into 32-bit integers. A Rice tile goes into an array rented from the pool (longer than the tile, to be given
+    /// back when <paramref name="pooled"/> is true): the tiles of a big image would otherwise allocate one array each.
+    /// </summary>
+    private static int[] DecodeIntsPooled(Params p, byte[] cell, Array? column, int row, int n, long[] extent, int elementSize, out bool pooled)
+    {
+        pooled = false;
+        if (p.Algorithm is not ("RICE_1" or "RICE_ONE")) return DecodeInts(p, cell, column, row, n, extent, elementSize);
+        CheckRiceCell(p, cell, n);
+        int[] ints = ArrayPool<int>.Shared.Rent(n);
+        try
+        {
+            RiceCodec.Decode(cell, ints.AsSpan(0, n), p.BlockSize, p.BytePix);
+        }
+        catch
+        {
+            ArrayPool<int>.Shared.Return(ints);
+            throw;
+        }
+        pooled = true;
+        return ints;
+    }
+
+    // Every block needs at least its FS code: a tiny cell cannot describe a big tile.
+    private static void CheckRiceCell(Params p, byte[] cell, int n)
+    {
+        int fsbits = p.BytePix switch { 1 => 3, 2 => 4, _ => 5 };
+        if (p.BlockSize >= 1 && cell.Length < p.BytePix + (long)(n / p.BlockSize) * fsbits / 8)
+            throw new FitsException("The Rice compressed data is too short for the announced tile size.");
+    }
+
+    /// <summary>Converts decoded integers to the type of the image and writes them into the result.</summary>
+    private static void WriteInts(TileGrid grid, byte[] image, ReadOnlySpan<int> ints, BitPix bp, long[] origin, long[] extent)
+    {
+        switch (bp)
+        {
+            case BitPix.Int32:
+                grid.WriteTile(image, ints, origin, extent);
+                break;
+            case BitPix.Byte:
+            {
+                byte[] r = ArrayPool<byte>.Shared.Rent(ints.Length);
+                try
+                {
+                    for (int i = 0; i < ints.Length; i++) r[i] = (byte)Math.Clamp(ints[i], 0, 255); // lossy data can overshoot the range
+                    grid.WriteTile<byte>(image, r.AsSpan(0, ints.Length), origin, extent);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(r);
+                }
+                break;
+            }
+            case BitPix.Int16:
+            {
+                short[] r = ArrayPool<short>.Shared.Rent(ints.Length);
+                try
+                {
+                    for (int i = 0; i < ints.Length; i++) r[i] = (short)Math.Clamp(ints[i], short.MinValue, short.MaxValue);
+                    grid.WriteTile<short>(image, r.AsSpan(0, ints.Length), origin, extent);
+                }
+                finally
+                {
+                    ArrayPool<short>.Shared.Return(r);
+                }
+                break;
+            }
+            case BitPix.Int64:
+            {
+                long[] r = ArrayPool<long>.Shared.Rent(ints.Length);
+                try
+                {
+                    for (int i = 0; i < ints.Length; i++) r[i] = ints[i];
+                    grid.WriteTile<long>(image, r.AsSpan(0, ints.Length), origin, extent);
+                }
+                finally
+                {
+                    ArrayPool<long>.Shared.Return(r);
+                }
+                break;
+            }
+            default:
+                throw new FitsException("Integer tiles cannot describe a floating point image without quantization.");
+        }
+    }
+
     /// <summary>Decodes a tile into 32-bit integers with the algorithm of the table.</summary>
     private static int[] DecodeInts(Params p, byte[] cell, Array? column, int row, int n, long[] extent, int elementSize)
     {
@@ -281,10 +405,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         {
             case "RICE_1" or "RICE_ONE":
             {
-                // every block needs at least its FS code: a tiny cell cannot describe a big tile
-                int fsbits = p.BytePix switch { 1 => 3, 2 => 4, _ => 5 };
-                if (p.BlockSize >= 1 && cell.Length < p.BytePix + (long)(n / p.BlockSize) * fsbits / 8)
-                    throw new FitsException("The Rice compressed data is too short for the announced tile size.");
+                CheckRiceCell(p, cell, n);
                 return RiceCodec.Decode(cell, n, p.BlockSize, p.BytePix);
             }
             case "GZIP_1" or "GZIP_2" or "NOCOMPRESS":
@@ -344,68 +465,11 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         };
     }
 
-    private static Array Alloc(BitPix bp, long count) => bp switch
+    /// <summary>Writes the big-endian bytes of a tile into the result as they are.</summary>
+    private static void WriteBytes(TileGrid grid, byte[] image, byte[] tile, int elementSize, int n, long[] origin, long[] extent)
     {
-        BitPix.Byte => new byte[count],
-        BitPix.Int16 => new short[count],
-        BitPix.Int32 => new int[count],
-        BitPix.Int64 => new long[count],
-        BitPix.Single => new float[count],
-        _ => new double[count],
-    };
-
-    private static Array FromBigEndian(byte[] bytes, BitPix bp, int count)
-    {
-        if (bytes.Length != (long)count * bp.BytesPerElement()) throw new FitsException("A tile holds the wrong number of bytes.");
-        return bp switch
-        {
-            BitPix.Byte => bytes,
-            BitPix.Int16 => BigEndian.ToArray<short>(bytes),
-            BitPix.Int32 => BigEndian.ToArray<int>(bytes),
-            BitPix.Int64 => BigEndian.ToArray<long>(bytes),
-            BitPix.Single => BigEndian.ToArray<float>(bytes),
-            _ => BigEndian.ToArray<double>(bytes),
-        };
-    }
-
-    private static byte[] ToBigEndian(Array a) => a switch
-    {
-        byte[] x => x,
-        short[] x => BigEndian.FromArray<short>(x),
-        int[] x => BigEndian.FromArray<int>(x),
-        long[] x => BigEndian.FromArray<long>(x),
-        float[] x => BigEndian.FromArray<float>(x),
-        double[] x => BigEndian.FromArray<double>(x),
-        _ => throw new FitsException("Unsupported pixel array."),
-    };
-
-    private static Array IntsToTyped(int[] ints, BitPix bp)
-    {
-        switch (bp)
-        {
-            case BitPix.Byte:
-            {
-                var r = new byte[ints.Length];
-                for (int i = 0; i < r.Length; i++) r[i] = (byte)Math.Clamp(ints[i], 0, 255); // lossy data can overshoot the range
-                return r;
-            }
-            case BitPix.Int16:
-            {
-                var r = new short[ints.Length];
-                for (int i = 0; i < r.Length; i++) r[i] = (short)Math.Clamp(ints[i], short.MinValue, short.MaxValue);
-                return r;
-            }
-            case BitPix.Int32:
-                return ints;
-            case BitPix.Int64:
-            {
-                var r = new long[ints.Length];
-                for (int i = 0; i < r.Length; i++) r[i] = ints[i];
-                return r;
-            }
-            default:
-                throw new FitsException("Integer tiles cannot describe a floating point image without quantization.");
-        }
+        if (tile.Length != (long)n * elementSize) throw new FitsException("A tile holds the wrong number of bytes.");
+        grid.WriteTileBytes(image, tile, elementSize, origin, extent);
     }
 
     // ---- Table editing is not offered: the Z* keywords would no longer describe the table ------------------------------
@@ -482,7 +546,8 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         long[] tileShape = options.TileShape ?? DefaultTile(axes, algo);
         if (tileShape.Length != axes.Length) throw new ArgumentException("TileShape needs one entry per axis.", nameof(options));
         var grid = new TileGrid(axes, tileShape);
-        Array pixels = FromBigEndian(image.Source.ReadAll(), bp, checked((int)grid.PixelCount));
+        byte[] pixels = image.Source.ReadAll();   // big-endian, as stored: each tile converts its own part
+        if (pixels.Length != grid.PixelCount * bp.BytesPerElement()) throw new FitsException("A tile holds the wrong number of bytes.");
 
         int bytePix = quantize ? 4 : Math.Min(4, bp.BytesPerElement());
         var rows = new byte[grid.TileCount][];
@@ -510,49 +575,69 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         {
             grid.GetTile(t, out var origin, out var extent);
             int n = TileGrid.CountInt(extent);
-            Array tile = Alloc(bp, n);
-            grid.Copy(pixels, tile, origin, extent, toImage: false);
             rows[t] = [];
             plioRows[t] = [];
             gzipRows[t] = [];
+            int elementSize = bp.BytesPerElement();
+
+            // The algorithms that compress bytes take the big-endian bytes of the tile as they are in the image.
+            byte[] TileBytes()
+            {
+                var bytes = new byte[n * elementSize];
+                grid.ReadTileBytes(pixels, bytes, elementSize, origin, extent);
+                return bytes;
+            }
 
             if (floating)
             {
-                double[] values = tile is float[] f ? WidenToDouble(f) : (double[])tile;
                 if (quantize)
                 {
-                    if (Quantizer.TryQuantize(values, (int)extent[0], options.QuantizeLevel, options.Quantization, (int)t, options.DitherSeed,
-                            out int[] ints, out double scale, out double zero, out bool nan))
+                    double[] values = ArrayPool<double>.Shared.Rent(n);
+                    int[] ints = ArrayPool<int>.Shared.Rent(n);
+                    try
                     {
-                        if (nan) Volatile.Write(ref anyNaNFlag, 1);
-                        scales[t] = scale;
-                        zeros[t] = zero;
-                        EncodeInts(options, ints, extent, bytePix, 4, rows, plioRows, t);
+                        ReadTileAsDoubles(grid, pixels, bp, values.AsSpan(0, n), origin, extent);
+                        if (Quantizer.TryQuantize(values.AsSpan(0, n), ints.AsSpan(0, n), (int)extent[0], options.QuantizeLevel, options.Quantization, (int)t,
+                                options.DitherSeed, out double scale, out double zero, out bool nan))
+                        {
+                            if (nan) Volatile.Write(ref anyNaNFlag, 1);
+                            scales[t] = scale;
+                            zeros[t] = zero;
+                            EncodeInts(options, ints.AsSpan(0, n), extent, bytePix, 4, rows, plioRows, t);
+                        }
+                        else
+                        {
+                            Volatile.Write(ref anyFallbackFlag, 1); // not quantizable: store the floats losslessly
+                            gzipRows[t] = GzipCodec.Compress(TileBytes());
+                        }
                     }
-                    else
+                    finally
                     {
-                        Volatile.Write(ref anyFallbackFlag, 1); // not quantizable: store the floats losslessly
-                        gzipRows[t] = GzipCodec.Compress(ToBigEndian(tile));
+                        ArrayPool<double>.Shared.Return(values);
+                        ArrayPool<int>.Shared.Return(ints);
                     }
                 }
                 else
                 {
-                    rows[t] = EncodeRaw(algo, ToBigEndian(tile), bp.BytesPerElement());
+                    rows[t] = EncodeRaw(algo, TileBytes(), elementSize);
                 }
             }
             else if (algo is CompressionAlgorithm.Gzip1 or CompressionAlgorithm.Gzip2 or CompressionAlgorithm.NoCompress)
             {
-                rows[t] = EncodeRaw(algo, ToBigEndian(tile), bp.BytesPerElement());
+                rows[t] = EncodeRaw(algo, TileBytes(), elementSize);
             }
             else
             {
-                int[] ints = tile switch
+                int[] ints = ArrayPool<int>.Shared.Rent(n);
+                try
                 {
-                    byte[] b => WidenToInt(b),
-                    short[] s => WidenToInt(s),
-                    _ => (int[])tile,
-                };
-                EncodeInts(options, ints, extent, bytePix, bp.BytesPerElement(), rows, plioRows, t);
+                    ReadTileAsInts(grid, pixels, bp, ints.AsSpan(0, n), origin, extent);
+                    EncodeInts(options, ints.AsSpan(0, n), extent, bytePix, elementSize, rows, plioRows, t);
+                }
+                finally
+                {
+                    ArrayPool<int>.Shared.Return(ints);
+                }
             }
         });
         bool anyFallback = anyFallbackFlag != 0, anyNaN = anyNaNFlag != 0;
@@ -624,25 +709,79 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         return new CompressedImageHdu(h, table.Source);
     }
 
-    private static double[] WidenToDouble(float[] source)
+    private static double NoiseOf(ReadOnlySpan<int> ints, int width)
     {
-        var r = new double[source.Length];
-        for (int i = 0; i < r.Length; i++) r[i] = source[i];
-        return r;
+        double[] values = ArrayPool<double>.Shared.Rent(ints.Length);
+        try
+        {
+            for (int i = 0; i < ints.Length; i++) values[i] = ints[i];
+            return Quantizer.EstimateNoise(values.AsSpan(0, ints.Length), width);
+        }
+        finally
+        {
+            ArrayPool<double>.Shared.Return(values);
+        }
     }
 
-    private static int[] WidenToInt(byte[] source)
+    /// <summary>A floating point tile as doubles.</summary>
+    private static void ReadTileAsDoubles(TileGrid grid, byte[] pixels, BitPix bp, Span<double> values, long[] origin, long[] extent)
     {
-        var r = new int[source.Length];
-        for (int i = 0; i < r.Length; i++) r[i] = source[i];
-        return r;
+        if (bp == BitPix.Double)
+        {
+            grid.ReadTile(pixels, values, origin, extent);
+            return;
+        }
+        float[] floats = ArrayPool<float>.Shared.Rent(values.Length);
+        try
+        {
+            grid.ReadTile<float>(pixels, floats.AsSpan(0, values.Length), origin, extent);
+            for (int i = 0; i < values.Length; i++) values[i] = floats[i];
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(floats);
+        }
     }
 
-    private static int[] WidenToInt(short[] source)
+    /// <summary>An integer tile as the 32-bit integers the Rice, PLIO and HCOMPRESS encoders take.</summary>
+    private static void ReadTileAsInts(TileGrid grid, byte[] pixels, BitPix bp, Span<int> ints, long[] origin, long[] extent)
     {
-        var r = new int[source.Length];
-        for (int i = 0; i < r.Length; i++) r[i] = source[i];
-        return r;
+        switch (bp)
+        {
+            case BitPix.Int32:
+                grid.ReadTile(pixels, ints, origin, extent);
+                break;
+            case BitPix.Byte:
+            {
+                byte[] bytes = ArrayPool<byte>.Shared.Rent(ints.Length);
+                try
+                {
+                    grid.ReadTile<byte>(pixels, bytes.AsSpan(0, ints.Length), origin, extent);
+                    for (int i = 0; i < ints.Length; i++) ints[i] = bytes[i];
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(bytes);
+                }
+                break;
+            }
+            case BitPix.Int16:
+            {
+                short[] shorts = ArrayPool<short>.Shared.Rent(ints.Length);
+                try
+                {
+                    grid.ReadTile<short>(pixels, shorts.AsSpan(0, ints.Length), origin, extent);
+                    for (int i = 0; i < ints.Length; i++) ints[i] = shorts[i];
+                }
+                finally
+                {
+                    ArrayPool<short>.Shared.Return(shorts);
+                }
+                break;
+            }
+            default:
+                throw new FitsException("Unsupported pixel array.");
+        }
     }
 
     private static long[] DefaultTile(long[] axes, CompressionAlgorithm algo)
@@ -678,7 +817,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
     };
 
     /// <summary>Encodes integer tile data with the chosen algorithm into the row arrays.</summary>
-    private static void EncodeInts(CompressionOptions o, int[] ints, long[] extent, int bytePix, int elementSize,
+    private static void EncodeInts(CompressionOptions o, ReadOnlySpan<int> ints, long[] extent, int bytePix, int elementSize,
         byte[][] rows, short[][] plioRows, long tile)
     {
         switch (o.Algorithm)
@@ -697,7 +836,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
                 double requested = o.HCompressScale;
                 int scale = requested >= 0
                     ? (int)Math.Round(requested)
-                    : Math.Max(1, (int)Math.Round(-requested * Quantizer.EstimateNoise(ints.Select(v => (double)v).ToArray(), (int)extent[0])));
+                    : Math.Max(1, (int)Math.Round(-requested * NoiseOf(ints, (int)extent[0])));
                 rows[tile] = HcompressCodec.Encode(ints, (int)extent[0], (int)ny, scale);
                 break;
             }
