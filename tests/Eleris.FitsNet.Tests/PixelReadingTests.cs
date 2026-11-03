@@ -198,4 +198,32 @@ public class PixelReadingTests
         Assert.Throws<FitsException>(() => PixelConvert.ToFloating<double>(source, BitPix.Int32, null, 1, 0));
         Assert.Equal(7, BigEndian.ReadArray<byte>(source).Length);
     }
+
+    [Fact]
+    public void Ranges_of_a_file_are_read_at_their_offset_and_a_short_file_is_refused()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "fitsnet-ranges-" + Guid.NewGuid().ToString("N") + ".bin");
+        try
+        {
+            byte[] content = Values(100_000, i => unchecked((byte)(i * 13 + i / 251)));
+            File.WriteAllBytes(path, content);
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess);
+            // The data starts at 1000 in the file and is announced longer than what the file holds.
+            var source = new StreamDataSource(stream, 1000, 200_000);
+            var buffer = new byte[300];
+            foreach (long start in new long[] { 0, 1, 4095, 4096, 50_000, 98_700 })
+            {
+                stream.Position = 7;   // the position of the stream is not what the reads rely on
+                source.ReadRange(start, buffer);
+                Assert.Equal(content.AsSpan((int)(1000 + start), 300).ToArray(), buffer);
+            }
+            Assert.Throws<FitsException>(() => source.ReadRange(99_000, new byte[2000]));
+            Assert.Throws<FitsException>(() => source.ReadRange(150_000, new byte[1]));
+            Assert.Throws<ArgumentOutOfRangeException>(() => source.ReadRange(199_900, new byte[200]));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
