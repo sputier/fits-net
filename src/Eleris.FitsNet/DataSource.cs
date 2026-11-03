@@ -1,3 +1,5 @@
+using Microsoft.Win32.SafeHandles;
+
 namespace Eleris.FitsNet;
 
 /// <summary>Where the (unpadded) data bytes of an HDU live.</summary>
@@ -110,6 +112,9 @@ internal sealed class SegmentDataSource(byte[] buffer, int offset, int length) :
 /// <summary>Lazily reads a byte range of a seekable stream (typically the source file). Not safe for concurrent use.</summary>
 internal sealed class StreamDataSource(Stream stream, long offset, long length) : DataSource
 {
+    // Asking a FileStream for its handle flushes and seeks it: done once, not for every read.
+    private readonly SafeFileHandle? _handle = stream is FileStream { CanSeek: true, IsAsync: false } file ? file.SafeFileHandle : null;
+
     public Stream Stream => stream;
 
     public long Offset => offset;
@@ -125,6 +130,20 @@ internal sealed class StreamDataSource(Stream stream, long offset, long length) 
     public override void ReadRange(long start, Span<byte> destination)
     {
         if (start < 0 || start > length || destination.Length > length - start) throw new ArgumentOutOfRangeException(nameof(start));
+        const string truncated = "The file ends before the end of the data announced by the header.";
+        if (_handle is not null)
+        {
+            // A read at an explicit offset: no seek, and no buffer filled around a few bytes (a narrow cutout reads thousands of short runs).
+            long position = offset + start;
+            while (destination.Length > 0)
+            {
+                int read = RandomAccess.Read(_handle, destination, position);
+                if (read == 0) throw new FitsException(truncated);
+                destination = destination[read..];
+                position += read;
+            }
+            return;
+        }
         stream.Position = offset + start;
         try
         {
@@ -132,7 +151,7 @@ internal sealed class StreamDataSource(Stream stream, long offset, long length) 
         }
         catch (EndOfStreamException)
         {
-            throw new FitsException("The file ends before the end of the data announced by the header.");
+            throw new FitsException(truncated);
         }
     }
 
