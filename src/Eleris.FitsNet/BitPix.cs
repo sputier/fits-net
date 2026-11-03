@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using System.Runtime.InteropServices;
 
 namespace Eleris.FitsNet;
@@ -48,10 +49,63 @@ internal static class BigEndian
     {
         int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
         if (data.Length % size != 0) throw new FitsException("Data length is not a multiple of the element size.");
-        var result = new T[data.Length / size];
-        data.CopyTo(MemoryMarshal.AsBytes(result.AsSpan()));
-        if (BitConverter.IsLittleEndian) Swap(MemoryMarshal.AsBytes(result.AsSpan()), size);
+        var result = GC.AllocateUninitializedArray<T>(data.Length / size);
+        Read(data, result);
         return result;
+    }
+
+    /// <summary>Reads all the values of a data source, a chunk at a time so that nothing but the result is allocated.</summary>
+    public static T[] ReadArray<T>(DataSource source) where T : unmanaged
+    {
+        int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+        var result = GC.AllocateUninitializedArray<T>(source.ElementCount(size));
+        source.ReadInChunks(size, (bytes, first) => Read(bytes, result.AsSpan(first, bytes.Length / size)));
+        return result;
+    }
+
+    /// <summary>Like <see cref="ReadArray{T}"/>, then flips the bits of <paramref name="mask"/> (the unsigned integer conventions: BZERO = 2^(n-1)).</summary>
+    public static T[] ReadArrayXor<T>(DataSource source, T mask) where T : unmanaged, IBitwiseOperators<T, T, T>
+    {
+        int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+        var result = GC.AllocateUninitializedArray<T>(source.ElementCount(size));
+        source.ReadInChunks(size, (bytes, first) =>
+        {
+            Span<T> part = result.AsSpan(first, bytes.Length / size);
+            Read(bytes, part);
+            Xor(part, mask);
+        });
+        return result;
+    }
+
+    /// <summary>Fills <paramref name="destination"/> with the big-endian values in <paramref name="data"/>, in one pass.</summary>
+    public static void Read<T>(ReadOnlySpan<byte> data, Span<T> destination) where T : unmanaged
+    {
+        int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+        if (data.Length != destination.Length * size) throw new ArgumentException("The destination does not match the data.", nameof(destination));
+        if (size == 1 || !BitConverter.IsLittleEndian)
+        {
+            data.CopyTo(MemoryMarshal.AsBytes(destination));
+            return;
+        }
+        switch (size)
+        {
+            case 2: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<byte, ushort>(data), MemoryMarshal.Cast<T, ushort>(destination)); break;
+            case 4: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<byte, uint>(data), MemoryMarshal.Cast<T, uint>(destination)); break;
+            case 8: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<byte, ulong>(data), MemoryMarshal.Cast<T, ulong>(destination)); break;
+            default: throw new NotSupportedException($"Unsupported element size {size}.");
+        }
+    }
+
+    public static void Xor<T>(Span<T> values, T mask) where T : unmanaged, IBitwiseOperators<T, T, T>
+    {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated && values.Length >= Vector<T>.Count)
+        {
+            var vectorMask = new Vector<T>(mask);
+            for (; i <= values.Length - Vector<T>.Count; i += Vector<T>.Count)
+                (new Vector<T>(values.Slice(i)) ^ vectorMask).CopyTo(values.Slice(i));
+        }
+        for (; i < values.Length; i++) values[i] ^= mask;
     }
 
     public static byte[] FromArray<T>(ReadOnlySpan<T> values) where T : unmanaged
