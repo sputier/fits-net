@@ -47,7 +47,8 @@ This page lists, section by section, how Eleris.FitsNet follows the FITS 4.0 sta
 - The 27 celestial projections, the rotation by `PCi_j`, `CDi_j` or `CROTAi`, the poles (`LONPOLE`, `LATPOLE`, `PVi_m`), and alternate descriptions `A` to `Z`.
 - Spectral axes, linear, logarithmic or with the algorithms of Table 26 (`-F2W` and the others), when the rest frequency or wavelength is known where it is needed.
 - Not supported, with a `NotSupportedException`: the lookup table coordinates (`-TAB`) and the grism algorithms (`-GRI`, `-GRA`).
-- Not applied: the distortion conventions written after the projection code (`-SIP`, `-TPV`...) are not part of the standard. The conversion uses the plain projection and `UnappliedDistortion` reports the convention.
+- Applied, although they are not part of the standard: the distortion conventions `-SIP` (polynomials `A_p_q`, `B_p_q` and their inverses) and `TPV` (the polynomials of SCAMP, up to the seventh degree). `Distortion` tells which one a description uses; the results are checked against astropy.
+- Not applied: the other conventions written after the projection code (`-DSS`, `-WAT`...). The conversion uses the plain projection and `UnappliedDistortion` reports the convention.
 - Celestial axes can use the units `deg`, `arcmin`, `arcsec`, `mas` and `rad`.
 - The conversion of celestial coordinates between reference frames (for example FK5 to Galactic) is not done by this library: `RadeSys` and `Equinox` tell the frame, and the conversion between frames is left to you.
 

@@ -18,6 +18,7 @@ public sealed class WorldCoordinateSystem
 | [`AxisCount`](#eleris-fitsnet-wcs-worldcoordinatesystem-axiscount) | Number of world coordinate axes (WCSAXESa). |
 | [`AxisKinds`](#eleris-fitsnet-wcs-worldcoordinatesystem-axiskinds) | What each axis is: linear, celestial, spectral, time, or one of the other time-related axes of section 9.6. |
 | [`CoordinateTypes`](#eleris-fitsnet-wcs-worldcoordinatesystem-coordinatetypes) | The CTYPEi values. |
+| [`Distortion`](#eleris-fitsnet-wcs-worldcoordinatesystem-distortion) | The distortion convention that the transformations apply: `SIP` (`-SIP` after the projection code, with the keywords `A_ORDER`, `A_p_q`, `B_ORDER`, `B_p_q`, and optionally `AP_p_q`, `BP_p_q`), `TPV` (the projection code `TPV`, with the polynomials `PV1_0` to `PV1_39` and `PV2_0` to `PV2_39` of SCAMP), or an empty string when there is none. |
 | [`Equinox`](#eleris-fitsnet-wcs-worldcoordinatesystem-equinox) | Equinox of the celestial coordinates in years (EQUINOXa), if given. |
 | [`IsCelestial`](#eleris-fitsnet-wcs-worldcoordinatesystem-iscelestial) | Whether the description has a longitude and a latitude axis. |
 | [`LatitudeAxis`](#eleris-fitsnet-wcs-worldcoordinatesystem-latitudeaxis) | Zero-based index of the latitude axis, or -1. |
@@ -30,7 +31,7 @@ public sealed class WorldCoordinateSystem
 | [`ReferencePixel`](#eleris-fitsnet-wcs-worldcoordinatesystem-referencepixel) | The reference pixel, CRPIXj. |
 | [`ReferenceValue`](#eleris-fitsnet-wcs-worldcoordinatesystem-referencevalue) | The reference values, CRVALi, in the unit of CUNITi as written in the header. |
 | [`TimeAxis`](#eleris-fitsnet-wcs-worldcoordinatesystem-timeaxis) | Zero-based index of the time axis, or -1. |
-| [`UnappliedDistortion`](#eleris-fitsnet-wcs-worldcoordinatesystem-unapplieddistortion) | A distortion convention appended to the projection code of the celestial CTYPEs (such as `-SIP` or `-TPV`). |
+| [`UnappliedDistortion`](#eleris-fitsnet-wcs-worldcoordinatesystem-unapplieddistortion) | A distortion convention written after the projection code of the celestial CTYPEs that is not applied: the transformation is then the plain projection. |
 | [`Units`](#eleris-fitsnet-wcs-worldcoordinatesystem-units) | The CUNITi values as written in the header (celestial axes are nevertheless converted to degrees). |
 
 ## Methods
@@ -82,6 +83,15 @@ The CTYPEi values.
 
 ```csharp
 public IReadOnlyList<string> CoordinateTypes { get; }
+```
+
+<a id="eleris-fitsnet-wcs-worldcoordinatesystem-distortion"></a>
+### `Distortion`
+
+The distortion convention that the transformations apply: `SIP` (`-SIP` after the projection code, with the keywords `A_ORDER`, `A_p_q`, `B_ORDER`, `B_p_q`, and optionally `AP_p_q`, `BP_p_q`), `TPV` (the projection code `TPV`, with the polynomials `PV1_0` to `PV1_39` and `PV2_0` to `PV2_39` of SCAMP), or an empty string when there is none. Neither is part of the standard.
+
+```csharp
+public string Distortion { get; }
 ```
 
 <a id="eleris-fitsnet-wcs-worldcoordinatesystem-equinox"></a>
@@ -150,7 +160,7 @@ public string? Name { get; }
 <a id="eleris-fitsnet-wcs-worldcoordinatesystem-projectioncode"></a>
 ### `ProjectionCode`
 
-The three-letter projection code of the celestial axes (for example `TAN`); empty when there are none.
+The three-letter projection code of the celestial axes (for example `TAN`); empty when there are none. A description with the `TPV` distortion convention gives `TPV` here, and is converted with the tangent projection (see [`WorldCoordinateSystem.Distortion`](#eleris-fitsnet-wcs-worldcoordinatesystem-distortion)).
 
 ```csharp
 public string ProjectionCode { get; }
@@ -195,7 +205,7 @@ public int TimeAxis { get; }
 <a id="eleris-fitsnet-wcs-worldcoordinatesystem-unapplieddistortion"></a>
 ### `UnappliedDistortion`
 
-A distortion convention appended to the projection code of the celestial CTYPEs (such as `-SIP` or `-TPV`). It is not part of the standard and is not applied: the transformation is the plain projection. Empty when there is none.
+A distortion convention written after the projection code of the celestial CTYPEs that is not applied: the transformation is then the plain projection. This is the case of `-SIP` without the SIP keywords, of a SIP description that is not on the primary description or not on the first two axes, and of any other convention (`-DSS`, `-WAT`...). Empty when nothing is ignored.
 
 ```csharp
 public string UnappliedDistortion { get; }
