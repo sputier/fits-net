@@ -195,9 +195,7 @@ public abstract class TableHdu : Hdu
         foreach (var c in columns)
         {
             long per = ItemsPerRow(c);
-            c.Data = BinaryTableCodec.Concat(
-                BinaryTableCodec.SliceRows(c.Data!, per, 0, start),
-                BinaryTableCodec.SliceRows(c.Data!, per, start + count, rows - start - count));
+            c.Data = BinaryTableCodec.RemoveRows(c.Data!, per, start, count);
         }
         SetColumnsCore(columns, rows - count);
     }

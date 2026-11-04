@@ -157,15 +157,22 @@ internal sealed class StreamDataSource(Stream stream, long offset, long length) 
 
     public override void CopyTo(Stream destination)
     {
-        var buffer = new byte[81920];
-        stream.Position = offset;
-        long remaining = length;
-        while (remaining > 0)
+        // Large blocks, read at their offset: a few big reads instead of one every 80 KB.
+        const int block = 1 << 20;
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent((int)Math.Min(block, Math.Max(length, 1)));
+        try
         {
-            int read = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
-            if (read == 0) throw new FitsException("Unexpected end of stream while copying HDU data.");
-            destination.Write(buffer, 0, read);
-            remaining -= read;
+            for (long done = 0; done < length;)
+            {
+                int n = (int)Math.Min(buffer.Length, length - done);
+                ReadRange(done, buffer.AsSpan(0, n));
+                destination.Write(buffer, 0, n);
+                done += n;
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 }
