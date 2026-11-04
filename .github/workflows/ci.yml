@@ -39,6 +39,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r docs/requirements.txt
+      - name: Text files use LF (see .gitattributes)
+        run: |
+          if git ls-files --eol | grep -E "(i|w)/(crlf|mixed)"; then
+            echo "::error::Some text files have CRLF or mixed line endings"
+            exit 1
+          fi
       - name: Build (the guide's examples are compiled with the library)
         run: dotnet build -c Release
       - name: The generated pages are up to date
