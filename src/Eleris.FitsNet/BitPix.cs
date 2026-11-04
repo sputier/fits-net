@@ -130,21 +130,47 @@ internal static class BigEndian
     public static byte[] FromArray<T>(ReadOnlySpan<T> values) where T : unmanaged
     {
         int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
-        var bytes = new byte[checked(values.Length * size)];
-        MemoryMarshal.AsBytes(values).CopyTo(bytes);
-        if (BitConverter.IsLittleEndian) Swap(bytes, size);
+        var bytes = GC.AllocateUninitializedArray<byte>(checked(values.Length * size));
+        Write(values, bytes);   // one pass, and the array is not cleared first
         return bytes;
     }
 
-    private static void Swap(Span<byte> bytes, int size)
+    // Elements converted at a time: a block that stays in the cache between the swap and the flip.
+    private const int WriteBlockBytes = 256 * 1024;
+
+    /// <summary>
+    /// The big-endian bytes of unsigned integers (or of <c>sbyte</c>) stored with the <c>BZERO</c> convention, that is with the top bit
+    /// of each value flipped (the same as subtracting 2^(n-1)): the swap and the flip are done together, a block at a time.
+    /// </summary>
+    public static byte[] FromArrayFlippingTopBit<T>(ReadOnlySpan<T> values) where T : unmanaged
     {
-        switch (size)
+        int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+        var bytes = GC.AllocateUninitializedArray<byte>(checked(values.Length * size));
+        int perBlock = WriteBlockBytes / size;
+        for (int start = 0, n; start < values.Length; start += n)
         {
-            case 1: break;
-            case 2: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<byte, ushort>(bytes), MemoryMarshal.Cast<byte, ushort>(bytes)); break;
-            case 4: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<byte, uint>(bytes), MemoryMarshal.Cast<byte, uint>(bytes)); break;
-            case 8: BinaryPrimitives.ReverseEndianness(MemoryMarshal.Cast<byte, ulong>(bytes), MemoryMarshal.Cast<byte, ulong>(bytes)); break;
-            default: throw new NotSupportedException($"Unsupported element size {size}.");
+            n = Math.Min(perBlock, values.Length - start);   // the step is the size of the block just done: no overflow near int.MaxValue
+            Span<byte> block = bytes.AsSpan(start * size, n * size);
+            Write(values.Slice(start, n), block);
+            FlipTopBits(block, size);
         }
+        return bytes;
+    }
+
+    /// <summary>Flips the first bit of every big-endian element of <paramref name="size"/> bytes.</summary>
+    private static void FlipTopBits(Span<byte> bytes, int size)
+    {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated && bytes.Length >= Vector<byte>.Count)
+        {
+            // the vector holds a whole number of elements (2, 4 or 8 bytes divide 16, 32 and 64): the same pattern at every step
+            Span<byte> pattern = stackalloc byte[Vector<byte>.Count];
+            pattern.Clear();
+            for (int k = 0; k < pattern.Length; k += size) pattern[k] = 0x80;
+            var mask = new Vector<byte>(pattern);
+            for (; i <= bytes.Length - Vector<byte>.Count; i += Vector<byte>.Count)
+                (new Vector<byte>(bytes[i..]) ^ mask).CopyTo(bytes[i..]);
+        }
+        for (; i < bytes.Length; i += size) bytes[i] ^= 0x80;
     }
 }

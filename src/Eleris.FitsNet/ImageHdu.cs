@@ -208,40 +208,28 @@ public sealed class ImageHdu : Hdu
         {
             bitPix = BitPix.Byte;
             bzero = -128L;
-            var s = MemoryMarshal.Cast<T, sbyte>(p);
-            var r = new byte[s.Length];
-            for (int i = 0; i < r.Length; i++) r[i] = unchecked((byte)((byte)s[i] ^ 0x80));
-            return r;
+            return BigEndian.FromArrayFlippingTopBit(MemoryMarshal.Cast<T, sbyte>(p));
         }
         if (typeof(T) == typeof(short)) { bitPix = BitPix.Int16; return BigEndian.FromArray(MemoryMarshal.Cast<T, short>(p)); }
         if (typeof(T) == typeof(ushort))
         {
             bitPix = BitPix.Int16;
             bzero = 32768L;
-            var u = MemoryMarshal.Cast<T, ushort>(p);
-            var t = new short[u.Length];
-            for (int i = 0; i < t.Length; i++) t[i] = unchecked((short)(u[i] ^ 0x8000));
-            return BigEndian.FromArray<short>(t);
+            return BigEndian.FromArrayFlippingTopBit(MemoryMarshal.Cast<T, ushort>(p));
         }
         if (typeof(T) == typeof(int)) { bitPix = BitPix.Int32; return BigEndian.FromArray(MemoryMarshal.Cast<T, int>(p)); }
         if (typeof(T) == typeof(uint))
         {
             bitPix = BitPix.Int32;
             bzero = 2147483648L;
-            var u = MemoryMarshal.Cast<T, uint>(p);
-            var t = new int[u.Length];
-            for (int i = 0; i < t.Length; i++) t[i] = unchecked((int)(u[i] ^ 0x80000000u));
-            return BigEndian.FromArray<int>(t);
+            return BigEndian.FromArrayFlippingTopBit(MemoryMarshal.Cast<T, uint>(p));
         }
         if (typeof(T) == typeof(long)) { bitPix = BitPix.Int64; return BigEndian.FromArray(MemoryMarshal.Cast<T, long>(p)); }
         if (typeof(T) == typeof(ulong))
         {
             bitPix = BitPix.Int64;
             bzero = new BigInteger(1UL << 63);
-            var u = MemoryMarshal.Cast<T, ulong>(p);
-            var t = new long[u.Length];
-            for (int i = 0; i < t.Length; i++) t[i] = unchecked((long)(u[i] ^ 0x8000000000000000UL));
-            return BigEndian.FromArray<long>(t);
+            return BigEndian.FromArrayFlippingTopBit(MemoryMarshal.Cast<T, ulong>(p));
         }
         if (typeof(T) == typeof(float)) { bitPix = BitPix.Single; return BigEndian.FromArray(MemoryMarshal.Cast<T, float>(p)); }
         if (typeof(T) == typeof(double)) { bitPix = BitPix.Double; return BigEndian.FromArray(MemoryMarshal.Cast<T, double>(p)); }
