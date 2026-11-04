@@ -83,28 +83,28 @@ public sealed class AsciiTableHdu : TableHdu
         catch (OverflowException) { throw new FitsException("The table size overflows."); }
         if (total > data.Length) throw new FitsException("The table is larger than its data.");
         string? tnull = (column.Null as string)?.Trim();
-        var strings = new string[rows];
-        for (long r = 0; r < rows; r++)
-        {
-            long at = r * rowWidth + column.AsciiStart - 1;
-            if (column.AsciiStart < 1 || at + f.Width > data.Length) throw new FitsException($"Column {index} lies outside the row.");
-            strings[r] = TableColumn.Latin1(data.Slice((int)at, f.Width));
-        }
+        // A TNULL that Latin-1 cannot hold never matches a cell.
+        byte[]? tnullBytes = tnull is not null && tnull.All(c => c <= 0xFF) ? Encoding.Latin1.GetBytes(tnull) : null;
+        // The fields are read straight from the bytes of the table: a string for each cell is only made when something is wrong.
+        int start = (int)column.AsciiStart - 1, width = f.Width;
 
         switch (f.Code)
         {
             case 'A':
-                for (int i = 0; i < strings.Length; i++) strings[i] = strings[i].TrimEnd(' ');
+            {
+                var strings = new string[rows];
+                for (long r = 0; r < rows; r++) strings[r] = TableColumn.Latin1(Cell(data, r, rowWidth, start, width).TrimEnd((byte)' '));
                 return strings;
+            }
             case 'I':
             {
                 var result = new long?[rows];
                 for (int i = 0; i < result.Length; i++)
                 {
-                    string t = strings[i].Trim();
-                    if (t.Length == 0 || t == tnull) continue;
+                    ReadOnlySpan<byte> t = TrimWhite(Cell(data, i, rowWidth, start, width));
+                    if (t.Length == 0 || tnullBytes is not null && t.SequenceEqual(tnullBytes)) continue;
                     result[i] = long.TryParse(t, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out long v)
-                        ? v : throw new FitsException($"Invalid integer '{t}' in column {index}, row {i}.");
+                        ? v : throw new FitsException($"Invalid integer '{TableColumn.Latin1(t)}' in column {index}, row {i}.");
                 }
                 return result;
             }
@@ -113,12 +113,39 @@ public sealed class AsciiTableHdu : TableHdu
                 var result = new double[rows];
                 for (int i = 0; i < result.Length; i++)
                 {
-                    string t = strings[i].Trim();
-                    result[i] = t.Length == 0 || t == tnull ? double.NaN : ParseFloat(t, f.Decimals, index, i);
+                    ReadOnlySpan<byte> t = TrimWhite(Cell(data, i, rowWidth, start, width));
+                    if (t.Length == 0 || tnullBytes is not null && t.SequenceEqual(tnullBytes)) result[i] = double.NaN;
+                    else if (!TryParseFloatFast(t, f.Decimals, out result[i])) result[i] = ParseFloat(TableColumn.Latin1(t), f.Decimals, index, i);
                 }
                 return result;
             }
         }
+    }
+
+    private static ReadOnlySpan<byte> Cell(ReadOnlySpan<byte> data, long row, long rowWidth, int start, int width) =>
+        data.Slice((int)(row * rowWidth + start), width);
+
+    private static ReadOnlySpan<byte> TrimWhite(ReadOnlySpan<byte> field)
+    {
+        int start = 0, end = field.Length;
+        while (start < end && char.IsWhiteSpace((char)field[start])) start++;
+        while (end > start && char.IsWhiteSpace((char)field[end - 1])) end--;
+        return field[start..end];
+    }
+
+    /// <summary>
+    /// The usual case, a number with its decimal point in the field (<c>12.5</c>, <c>-1.25E+03</c>, <c>0.5D-2</c>), parsed without any
+    /// text. Anything else (an implied decimal point, an exponent without a letter, an invalid field) is left to
+    /// <see cref="ParseFloat"/>, which also makes the error.
+    /// </summary>
+    private static bool TryParseFloatFast(ReadOnlySpan<byte> field, int decimals, out double value)
+    {
+        value = 0;
+        if (decimals > 0 && field.IndexOf((byte)'.') < 0) return false;
+        if (field.Length > 64) return false;
+        Span<byte> text = stackalloc byte[field.Length];
+        for (int i = 0; i < field.Length; i++) text[i] = field[i] is (byte)'D' or (byte)'d' ? (byte)'E' : field[i];
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
     }
 
     /// <summary>Parses Fortran style reals (D or E exponent); without a decimal point it is implied <paramref name="decimals"/> digits from the right.</summary>
@@ -171,13 +198,17 @@ public sealed class AsciiTableHdu : TableHdu
 
         var buffer = new byte[checked(rows * rowWidth)];
         Array.Fill(buffer, (byte)' ');
+        Span<char> digits = stackalloc char[128];
         for (int i = 0; i < columns.Count; i++)
         {
             var c = columns[i];
             var f = formats[i];
             string? tnull = c.Null as string;
+            string numberFormat = f.Code is 'F' or 'E' or 'D' ? (f.Code == 'F' ? "F" : "E") + f.Decimals.ToString(CultureInfo.InvariantCulture) : "";
             for (long r = 0; r < rows; r++)
             {
+                int at = (int)(r * rowWidth + c.AsciiStart - 1);
+                if (TryWriteFast(c, f, numberFormat, r, digits, buffer.AsSpan(at, f.Width))) continue;
                 string text = FormatCell(c, f, r, tnull);
                 if (text.Length > f.Width)
                     throw new FitsException($"Value '{text.Trim()}' does not fit in format {c.Format} (column '{c.Name}', row {r}); use a wider format.");
@@ -185,6 +216,68 @@ public sealed class AsciiTableHdu : TableHdu
             }
         }
         return (buffer, rows, rowWidth, 0);
+    }
+
+    /// <summary>
+    /// Writes the usual cells (a finite number that fits, a string of the right size) straight into the field without any text of its
+    /// own. The others (null, too wide, invalid) are left to <see cref="FormatCell"/>, which also makes the errors.
+    /// </summary>
+    private static bool TryWriteFast(TableColumn c, AsciiFormat f, string numberFormat, long row, Span<char> digits, Span<byte> field)
+    {
+        int length;
+        switch (f.Code)
+        {
+            case 'A':
+            {
+                string s = ((string[])c.Data!)[row];
+                if (s.Length > field.Length) return false;
+                for (int i = 0; i < s.Length; i++)
+                {
+                    char ch = s[i];
+                    if (ch is < ' ' or > '\u00FF') return false;
+                    field[i] = (byte)ch;
+                }
+                return true;   // the field is already filled with blanks
+            }
+            case 'I':
+                if (((long?[])c.Data!)[row] is not { } v || !v.TryFormat(digits, out length, default, CultureInfo.InvariantCulture)) return false;
+                break;
+            default:
+            {
+                double d = ((double[])c.Data!)[row];
+                if (!double.IsFinite(d) || !d.TryFormat(digits, out length, numberFormat, CultureInfo.InvariantCulture)) return false;
+                if (f.Code == 'F')
+                {
+                    if (length > field.Length)
+                    {
+                        // no room for the leading zero: 0.5 is written .5 and -0.5 is written -.5
+                        int zero = digits[0] == '-' ? 1 : 0;
+                        if (length - zero < 2 || digits[zero] != '0' || digits[zero + 1] != '.') return false;
+                        digits[(zero + 1)..length].CopyTo(digits[zero..]);
+                        length--;
+                    }
+                }
+                else
+                {
+                    // 1.2345678E+005 becomes 1.2345678E+05: two digits at least, as Fortran writes them
+                    int e = digits[..length].IndexOf('E');
+                    if (e < 0 || e + 2 > length) return false;
+                    int first = e + 2;
+                    while (first < length - 2 && digits[first] == '0') first++;
+                    int exponentDigits = length - first;
+                    if (exponentDigits < 1) return false;
+                    digits[e] = f.Code;
+                    int target = e + 2;
+                    for (int i = 0; i < exponentDigits; i++) digits[target + i] = digits[first + i];
+                    length = target + exponentDigits;
+                }
+                break;
+            }
+        }
+        if (length > field.Length) return false;
+        int offset = field.Length - length;   // numbers are right-aligned
+        for (int i = 0; i < length; i++) field[offset + i] = (byte)digits[i];
+        return true;
     }
 
     private static string FormatCell(TableColumn c, AsciiFormat f, long row, string? tnull)
@@ -276,7 +369,8 @@ public sealed class AsciiTableHdu : TableHdu
                     result[i] = ints[i] ?? throw new InvalidOperationException($"Row {i} is null; use ReadIntegerColumn.");
                 return (T[])(object)result;
             }
-            values = ints.Select(v => v is { } x ? (double)x : double.NaN).ToArray();
+            values = new double[ints.Length];
+            for (int i = 0; i < values.Length; i++) values[i] = ints[i] is { } x ? x : double.NaN;
         }
         else
         {
@@ -288,7 +382,9 @@ public sealed class AsciiTableHdu : TableHdu
         if (scale != 1 || zero != 0)
             for (int i = 0; i < values.Length; i++) values[i] = zero + scale * values[i];
         if (typeof(T) == typeof(double)) return (T[])(object)values;
-        return (T[])(object)values.Select(v => (float)v).ToArray();
+        var singles = new float[values.Length];
+        for (int i = 0; i < singles.Length; i++) singles[i] = (float)values[i];
+        return (T[])(object)singles;
     }
 
     /// <summary>Reads a numeric column by name (see <see cref="ReadColumn{T}(int)"/>).</summary>

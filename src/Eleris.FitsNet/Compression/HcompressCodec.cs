@@ -80,9 +80,7 @@ internal static class HcompressCodec
         QtreeDecode(reader, a, ny * nx2 + ny2, ny, nx / 2, ny / 2, nbitplanes[2]);
         if (reader.Nybble() != 0) throw new FitsException("The HCOMPRESS_1 stream has an invalid bit plane marker.");
         reader.AlignToByte(); // the sign bits are written as a separate, byte aligned bit stream
-
-        for (int i = 0; i < a.Length; i++)
-            if (a[i] != 0 && reader.Bit() != 0) a[i] = -a[i];
+        reader.ApplySigns(a);
 
         a[0] = sumall;
         return (a, nx, ny, scale);
@@ -190,10 +188,14 @@ internal static class HcompressCodec
             int s00 = offset + n * i, j;
             for (j = 0; j < ny - 1; j += 2)
             {
-                b[s00 + n + 1] |= (long)(a[k] & 1) << bit;
-                b[s00 + n] |= (long)((a[k] >> 1) & 1) << bit;
-                b[s00 + 1] |= (long)((a[k] >> 2) & 1) << bit;
-                b[s00] |= (long)((a[k] >> 3) & 1) << bit;
+                int code = a[k];
+                if (code != 0)   // the high bit planes are mostly empty
+                {
+                    b[s00 + n + 1] |= (long)(code & 1) << bit;
+                    b[s00 + n] |= (long)((code >> 1) & 1) << bit;
+                    b[s00 + 1] |= (long)((code >> 2) & 1) << bit;
+                    b[s00] |= (long)((code >> 3) & 1) << bit;
+                }
                 s00 += 2;
                 k++;
             }
@@ -422,22 +424,20 @@ internal static class HcompressCodec
         int log2n = CeilLog2(Math.Max(nqx, nqy));
         int nx0 = (nqx + 1) >> 1, ny0 = (nqy + 1) >> 1;
 
+        // level 0 is the finest (4-bit codes of 2x2 blocks), the last level is a single code; the same buffers serve every bit plane
+        var levels = new List<(byte[] Data, int Nx, int Ny)> { (new byte[Math.Max(1, nx0 * ny0)], nx0, ny0) };
+        for (int k = 1, nx = nx0, ny = ny0; k < log2n; k++)
+        {
+            nx = (nx + 1) >> 1;
+            ny = (ny + 1) >> 1;
+            levels.Add((new byte[Math.Max(1, nx * ny)], nx, ny));
+        }
+
         for (int bit = nbitplanes - 1; bit >= 0; bit--)
         {
-            // level 0 is the finest (4-bit codes of 2x2 blocks), the last level is a single code
-            var levels = new List<(byte[] Data, int Nx, int Ny)>();
-            var level = new byte[Math.Max(1, nx0 * ny0)];
-            QtreeOneBit(a, offset, n, nqx, nqy, level, bit);
-            levels.Add((level, nx0, ny0));
-            int nx = nx0, ny = ny0;
-            for (int k = 1; k < log2n; k++)
-            {
-                var next = new byte[Math.Max(1, ((nx + 1) >> 1) * ((ny + 1) >> 1))];
-                QtreeReduce(levels[^1].Data, ny, nx, ny, next);
-                nx = (nx + 1) >> 1;
-                ny = (ny + 1) >> 1;
-                levels.Add((next, nx, ny));
-            }
+            QtreeOneBit(a, offset, n, nqx, nqy, levels[0].Data, bit);
+            for (int k = 1; k < levels.Count; k++)
+                QtreeReduce(levels[k - 1].Data, levels[k - 1].Ny, levels[k - 1].Nx, levels[k - 1].Ny, levels[k].Data);
 
             // Quadtree coding is used unless its codes fill as many whole bytes as the direct bitmap (cfitsio's rule).
             int codeBits = 0;
@@ -660,6 +660,40 @@ internal static class HcompressCodec
 
         /// <summary>Discards the bits left in the current byte.</summary>
         public void AlignToByte() => _bits -= _bits % 8;
+
+        /// <summary>
+        /// Negates the coefficients whose sign bit is set: one bit for each non-zero one, in raster order, read from the whole bytes
+        /// that follow (the reader is byte aligned). The bits are taken from the data directly instead of one call each.
+        /// </summary>
+        public void ApplySigns(long[] a)
+        {
+            // the bits already buffered come first, then the bytes still in the data
+            long pending = 0;
+            for (int i = 0; i < a.Length; i++) if (a[i] != 0) pending++;
+            long available = _bits - _padding + 8L * (data.Length - _pos);
+            if (pending > available) throw new FitsException("The HCOMPRESS_1 stream is truncated.");
+
+            int bufferedBits = _bits;
+            ulong buffered = bufferedBits == 0 ? 0 : _buffer & ((1UL << bufferedBits) - 1);
+            int used = 0;                   // signs taken from the buffered bits
+            long position = 8L * _pos;      // bit position in the data of the next sign after the buffered bits
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] == 0) continue;
+                int negative;
+                if (used < bufferedBits)
+                {
+                    negative = (int)((buffered >> (bufferedBits - 1 - used)) & 1);
+                    used++;
+                }
+                else
+                {
+                    negative = (data[(int)(position >> 3)] >> (7 - (int)(position & 7))) & 1;
+                    position++;
+                }
+                if (negative != 0) a[i] = -a[i];
+            }
+        }
 
         /// <summary>Reads one value of the fixed Huffman code.</summary>
         public int Huffman()

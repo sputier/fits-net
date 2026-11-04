@@ -564,7 +564,7 @@ internal sealed class Zpn() : Zenithal("ZPN")
 
 internal sealed class Air() : Zenithal("AIR")
 {
-    private double _thetaB, _w;
+    private double _thetaB, _w, _largestRadius;
 
     protected override void Setup()
     {
@@ -583,6 +583,7 @@ internal sealed class Air() : Zenithal("AIR")
         {
             throw new FitsException("Invalid parameters for the AIR projection.");
         }
+        _largestRadius = RadiusOf(LargestXi);
     }
 
     private double RadiusOf(double xi)
@@ -594,11 +595,39 @@ internal sealed class Air() : Zenithal("AIR")
 
     protected override double Radius(double theta) => theta == -90.0 ? double.NaN : RadiusOf((90.0 - theta) / 2.0);
 
+    private const double LargestXi = 90.0 - 1e-9;
+
     protected override double Latitude(double r)
     {
         if (r == 0.0) return 90.0;
-        double lo = 0.0, hi = 90.0 - 1e-9;
-        if (RadiusOf(hi) < r) return double.NaN;
+        if (_largestRadius < r) return double.NaN;
+        // The radius grows with xi: a bracketed Newton iteration (bisection whenever a step leaves the bracket). From the small-angle
+        // estimate it needs about four steps where bisection needed about fifty, each with a logarithm and two trigonometric functions.
+        double lo = 0.0, hi = LargestXi;
+        double x = Math.Clamp(r / (1.0 - 2.0 * _w), 1e-9, hi);
+        // Very close to the pole cos(xi) rounds to 1, the radius is the (slightly biased) function the forward projection computes,
+        // and no slope fits it: plain bisection converges on its root exactly as it always did.
+        if (x < 1e-2) return LatitudeByBisection(r);
+        for (int k = 0; k < 100; k++)
+        {
+            double f = RadiusAndSlope(x, out double slope) - r;
+            if (f == 0.0) break;
+            if (f < 0) lo = x; else hi = x;
+            double next = x - f / slope;
+            if (!(next > lo && next < hi)) next = 0.5 * (lo + hi);
+            if (Math.Abs(next - x) < 1e-14 || hi - lo < 1e-14)
+            {
+                x = next;
+                break;
+            }
+            x = next;
+        }
+        return 90.0 - 2.0 * x;
+    }
+
+    private double LatitudeByBisection(double r)
+    {
+        double lo = 0.0, hi = LargestXi;
         for (int k = 0; k < 200; k++)
         {
             double mid = 0.5 * (lo + hi);
@@ -606,6 +635,16 @@ internal sealed class Air() : Zenithal("AIR")
             if (hi - lo < 1e-14) break;
         }
         return 90.0 - 2.0 * 0.5 * (lo + hi);
+    }
+
+    /// <summary>The radius and its derivative with respect to xi in degrees: R = -2 R0 (ln cos xi / tan xi + w tan xi).</summary>
+    private double RadiusAndSlope(double xi, out double slope)
+    {
+        double sin = Trig.Sin(xi), cos = Trig.Cos(xi);
+        double tan = sin / cos, log = Math.Log(cos);
+        // ln cos = 1/2 ln(1 - sin^2) is exact for small angles, where the logarithm of cos alone is not
+        slope = -2.0 * R0 * (-1.0 - 0.5 * Trig.Log1P(-sin * sin) / (sin * sin) + _w / (cos * cos)) * Trig.D2R;
+        return -2.0 * R0 * (log / tan + _w * tan);
     }
 }
 

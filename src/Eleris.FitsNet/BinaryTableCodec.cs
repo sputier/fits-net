@@ -126,7 +126,8 @@ internal static class BinaryTableCodec
     {
         int end = bytes.IndexOf((byte)0);
         if (end >= 0) bytes = bytes[..end];
-        return TableColumn.Latin1(bytes).TrimEnd(' ');
+        bytes = bytes.TrimEnd((byte)' ');   // trimmed before the text is made: one string, and none at all for an empty field
+        return bytes.Length == 0 ? "" : TableColumn.Latin1(bytes);
     }
 
     /// <summary>Number of strings (character columns) or values per row of a fixed-length column.</summary>
@@ -424,6 +425,15 @@ internal static class BinaryTableCodec
     {
         var result = Array.CreateInstance(data.GetType().GetElementType()!, count * perRow);
         Array.Copy(data, start * perRow, result, 0, count * perRow);
+        return result;
+    }
+
+    /// <summary>The data without <paramref name="count"/> rows starting at <paramref name="start"/>, in one copy.</summary>
+    public static Array RemoveRows(Array data, long perRow, long start, long count)
+    {
+        var result = Array.CreateInstance(data.GetType().GetElementType()!, data.Length - count * perRow);
+        Array.Copy(data, 0, result, 0, start * perRow);
+        Array.Copy(data, (start + count) * perRow, result, start * perRow, data.Length - (start + count) * perRow);
         return result;
     }
 
