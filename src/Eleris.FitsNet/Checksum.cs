@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
+using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace Eleris.FitsNet;
 
@@ -49,13 +51,8 @@ internal static class Checksum
     /// <summary>Sums big-endian 32-bit words; a trailing partial word is zero-padded.</summary>
     public static uint Sum(ReadOnlySpan<byte> data)
     {
-        ulong sum = 0;
-        int i = 0;
-        for (; i + 4 <= data.Length; i += 4)
-        {
-            sum += BinaryPrimitives.ReadUInt32BigEndian(data[i..]);
-            if ((i & 0xFFFFF) == 0) sum = Fold(sum); // keep the accumulator far from overflow
-        }
+        int i = data.Length / 4 * 4;
+        ulong sum = SumWords(data[..i]);
         if (i < data.Length)
         {
             Span<byte> tail = stackalloc byte[4];
@@ -63,6 +60,44 @@ internal static class Checksum
             sum += BinaryPrimitives.ReadUInt32BigEndian(tail);
         }
         return Fold(sum);
+    }
+
+    // Words swapped and added per round: small enough to stay in the L1 cache between the two passes.
+    private const int Round = 2048;
+
+    /// <summary>
+    /// Adds big-endian 32-bit words (the length is a multiple of 4) in a 64-bit accumulator that the caller folds. The words are
+    /// swapped to the machine order a block at a time, then added several at a time; the accumulator cannot overflow because a
+    /// span holds fewer than 2^31 bytes, so fewer than 2^29 words of less than 2^32.
+    /// </summary>
+    internal static ulong SumWords(ReadOnlySpan<byte> words)
+    {
+        if (!BitConverter.IsLittleEndian || !Vector.IsHardwareAccelerated || words.Length < 4 * Vector<uint>.Count) return SumWordsScalar(words);
+        ulong sum = 0;
+        ReadOnlySpan<uint> native = MemoryMarshal.Cast<byte, uint>(words);
+        Span<uint> swapped = stackalloc uint[Math.Min(Round, native.Length)];
+        var lanes = Vector<ulong>.Zero;
+        for (int start = 0; start < native.Length; start += Round)
+        {
+            int n = Math.Min(Round, native.Length - start);
+            BinaryPrimitives.ReverseEndianness(native.Slice(start, n), swapped[..n]);
+            int j = 0;
+            for (; j + Vector<uint>.Count <= n; j += Vector<uint>.Count)
+            {
+                Vector.Widen(new Vector<uint>(swapped[j..]), out Vector<ulong> low, out Vector<ulong> high);
+                lanes += low + high;
+            }
+            for (; j < n; j++) sum += swapped[j];
+        }
+        return sum + Vector.Sum(lanes);
+    }
+
+    /// <summary>The same sum one word at a time: for short spans and for machines without vector instructions.</summary>
+    internal static ulong SumWordsScalar(ReadOnlySpan<byte> words)
+    {
+        ulong sum = 0;
+        for (int i = 0; i < words.Length; i += 4) sum += BinaryPrimitives.ReadUInt32BigEndian(words[i..]);
+        return sum;
     }
 
     /// <summary>The 16 character ASCII encoding of a checksum (the algorithm of cfitsio's <c>ffesum</c>).</summary>
@@ -135,11 +170,9 @@ internal sealed class ChecksumStream : Stream
                 _filled = 0;
             }
         }
-        for (; i + 4 <= buffer.Length; i += 4)
-        {
-            _sum += BinaryPrimitives.ReadUInt32BigEndian(buffer[i..]);
-            if ((i & 0xFFFFF) == 0) _sum = Checksum.Fold(_sum);
-        }
+        int whole = (buffer.Length - i) / 4 * 4;
+        _sum += Checksum.SumWords(buffer.Slice(i, whole));
+        i += whole;
         for (; i < buffer.Length; i++) _word[_filled++] = buffer[i];
         _sum = Checksum.Fold(_sum);
     }
