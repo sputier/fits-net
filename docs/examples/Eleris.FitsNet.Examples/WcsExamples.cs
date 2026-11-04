@@ -41,6 +41,26 @@ public static class WcsExamples
         #endregion
     }
 
+    public static void Distortion()
+    {
+        #region Example:Wcs.Distortion
+        var header = new FitsHeader()
+            .Set("CTYPE1", "RA---TAN-SIP").Set("CTYPE2", "DEC--TAN-SIP")
+            .Set("CRPIX1", 500.0).Set("CRPIX2", 500.0)
+            .Set("CRVAL1", 150.0).Set("CRVAL2", 30.0)
+            .Set("CDELT1", -0.0003).Set("CDELT2", 0.0003)
+            // A_2_0 moves a pixel by one pixel when it is 500 pixels away from the reference pixel along the first axis
+            .Set("A_ORDER", 2).Set("B_ORDER", 2).Set("A_2_0", 4e-6);
+        var wcs = WorldCoordinateSystem.FromHeader(header);
+        Console.WriteLine(wcs.Distortion);                      // SIP
+
+        // The distortion is part of both directions: the pixel comes back where it started.
+        double[] sky = wcs.PixelToWorld([1000.0, 500.0]);
+        double[] pixel = wcs.WorldToPixel(sky);
+        Console.WriteLine($"{pixel[0]:F3}, {pixel[1]:F3}");     // 1000.000, 500.000
+        #endregion
+    }
+
     public static void Batch()
     {
         #region Example:Wcs.Batch

@@ -20,6 +20,8 @@ public sealed class WorldCoordinateSystem
     private readonly int _lng = -1, _lat = -1;
     private readonly double _celestialScale = 1.0; // axis unit to degrees for the celestial axes
     private readonly Projection? _projection;
+    private readonly SipDistortion? _sip;
+    private readonly TpvDistortion? _tpv;
     private readonly CelestialRotation? _rotation;
     private readonly SpectralAxis?[] _spectral;
     private readonly WorldAxisKind[] _kinds;
@@ -112,31 +114,34 @@ public sealed class WorldCoordinateSystem
                 throw new FitsException($"The celestial axes have different projections ('{_ctype[_lng]}' and '{_ctype[_lat]}').");
             if (ProjectionCode.Length != 3 || !ProjectionCode.All(char.IsAsciiLetterUpper))
                 throw new FitsException($"CTYPE{_lng + 1} '{_ctype[_lng]}' has no projection code.");
-            if (!Projection.IsKnown(ProjectionCode))
+            // TPV is the tangent projection with polynomials of the PVi_m of both axes: they are not the parameters of the projection
+            bool tpv = ProjectionCode == "TPV";
+            if (!tpv && !Projection.IsKnown(ProjectionCode))
                 throw new NotSupportedException($"The projection '{ProjectionCode}' is not one of the 27 celestial projections of the FITS standard.");
+            if (tpv) _tpv = TpvDistortion.Read(h, _lng, _lat, a);
 
             var pv = new double[30];
             Array.Fill(pv, double.NaN);
-            for (int m = 0; m < pv.Length; m++)
+            for (int m = 0; m < pv.Length && !tpv; m++)
                 if (h.TryGetValue($"PV{_lat + 1}_{m}{a}", out double v)) pv[m] = v;
             // PVi_1 and PVi_2 of the longitude axis give the native fiducial point; the projection only moves its own fiducial
             // point when PVi_0 is not zero, and then only if both are given.
-            for (int m = 5; m < 30; m++)
+            for (int m = 5; m < 30 && !tpv; m++)
                 if (h.Contains($"PV{_lng + 1}_{m}{a}"))
                     throw new FitsException($"PV{_lng + 1}_{m}{a}: only PVi_0 to PVi_4 are defined for the longitude axis.");
-            double? phi0 = h.TryGetValue($"PV{_lng + 1}_1{a}", out double p0) ? p0 : null;
-            double? theta0 = h.TryGetValue($"PV{_lng + 1}_2{a}", out double t0) ? t0 : null;
+            double? phi0 = !tpv && h.TryGetValue($"PV{_lng + 1}_1{a}", out double p0) ? p0 : null;
+            double? theta0 = !tpv && h.TryGetValue($"PV{_lng + 1}_2{a}", out double t0) ? t0 : null;
             if (theta0 is { } th && Math.Abs(th) > 90.0)
             {
                 if (Math.Abs(th) > 90.0 + 1e-10) throw new FitsException($"PV{_lng + 1}_2{a} (theta_0) must be between -90 and 90.");
                 theta0 = Math.CopySign(90.0, th);
             }
-            bool moved = h.TryGetValue($"PV{_lng + 1}_0{a}", out double flag) && flag != 0.0 && phi0 is not null && theta0 is not null;
-            _projection = Projection.Create(ProjectionCode, pv, moved ? phi0 : null, moved ? theta0 : null);
+            bool moved = !tpv && h.TryGetValue($"PV{_lng + 1}_0{a}", out double flag) && flag != 0.0 && phi0 is not null && theta0 is not null;
+            _projection = Projection.Create(tpv ? "TAN" : ProjectionCode, pv, moved ? phi0 : null, moved ? theta0 : null);
 
             // PVi_3 and PVi_4 of the longitude axis override LONPOLE and LATPOLE
-            LongitudePole = h.TryGetValue($"PV{_lng + 1}_3{a}", out double pv3) ? pv3 : h.TryGetValue("LONPOLE" + a, out double lp) ? lp : null;
-            LatitudePole = h.TryGetValue($"PV{_lng + 1}_4{a}", out double pv4) ? pv4 : h.TryGetValue("LATPOLE" + a, out double lt) ? lt : null;
+            LongitudePole = !tpv && h.TryGetValue($"PV{_lng + 1}_3{a}", out double pv3) ? pv3 : h.TryGetValue("LONPOLE" + a, out double lp) ? lp : null;
+            LatitudePole = !tpv && h.TryGetValue($"PV{_lng + 1}_4{a}", out double pv4) ? pv4 : h.TryGetValue("LATPOLE" + a, out double lt) ? lt : null;
             if (LongitudePole == 999.0) LongitudePole = null;
             _rotation = new CelestialRotation(_crval[_lng] * _celestialScale, _crval[_lat] * _celestialScale, LongitudePole, LatitudePole,
                 phi0 ?? _projection.Phi0, theta0 ?? _projection.Theta0);
@@ -146,7 +151,12 @@ public sealed class WorldCoordinateSystem
         RadeSys = h.Get<string>("RADESYS" + a)?.Trim() ?? (a.Length == 0 ? h.Get<string>("RADECSYS")?.Trim() : null);
         // the standard's default for equatorial coordinates: FK4 before 1984, FK5 from 1984, ICRS when no equinox is given
         if (RadeSys is null && _lng >= 0 && CoordinateType(_ctype[_lng]) == "RA--") RadeSys = Equinox is { } year ? (year < 1984.0 ? "FK4" : "FK5") : "ICRS";
-        UnappliedDistortion = _lng >= 0 && _ctype[_lng].Length > 8 ? _ctype[_lng][8..] : "";
+        string suffix = _lng >= 0 && _ctype[_lng].Length > 8 ? _ctype[_lng][8..] : "";
+        // SIP is written after the projection code of both celestial axes, on the primary description and on the first two pixel axes
+        if (suffix == "-SIP" && _tpv is null && _ctype[_lat].EndsWith("-SIP", StringComparison.Ordinal) && a.Length == 0 && _lng <= 1 && _lat <= 1)
+            _sip = SipDistortion.TryRead(h);
+        Distortion = _tpv is not null ? "TPV" : _sip is not null ? "SIP" : "";
+        UnappliedDistortion = _sip is not null ? "" : suffix;
 
         _spectral = new SpectralAxis?[n];
         _kinds = new WorldAxisKind[n];
@@ -182,7 +192,10 @@ public sealed class WorldCoordinateSystem
     /// <summary>Number of world coordinate axes (WCSAXESa).</summary>
     public int AxisCount { get; }
 
-    /// <summary>The three-letter projection code of the celestial axes (for example <c>TAN</c>); empty when there are none.</summary>
+    /// <summary>
+    /// The three-letter projection code of the celestial axes (for example <c>TAN</c>); empty when there are none. A description with
+    /// the <c>TPV</c> distortion convention gives <c>TPV</c> here, and is converted with the tangent projection (see <see cref="Distortion"/>).
+    /// </summary>
     public string ProjectionCode { get; } = "";
 
     /// <summary>Whether the description has a longitude and a latitude axis.</summary>
@@ -207,8 +220,17 @@ public sealed class WorldCoordinateSystem
     public double? LatitudePole { get; }
 
     /// <summary>
-    /// A distortion convention appended to the projection code of the celestial CTYPEs (such as <c>-SIP</c> or <c>-TPV</c>). It is not part
-    /// of the standard and is not applied: the transformation is the plain projection. Empty when there is none.
+    /// The distortion convention that the transformations apply: <c>SIP</c> (<c>-SIP</c> after the projection code, with the keywords
+    /// <c>A_ORDER</c>, <c>A_p_q</c>, <c>B_ORDER</c>, <c>B_p_q</c>, and optionally <c>AP_p_q</c>, <c>BP_p_q</c>), <c>TPV</c> (the projection
+    /// code <c>TPV</c>, with the polynomials <c>PV1_0</c> to <c>PV1_39</c> and <c>PV2_0</c> to <c>PV2_39</c> of SCAMP), or an empty string
+    /// when there is none. Neither is part of the standard.
+    /// </summary>
+    public string Distortion { get; }
+
+    /// <summary>
+    /// A distortion convention written after the projection code of the celestial CTYPEs that is not applied: the transformation is then the
+    /// plain projection. This is the case of <c>-SIP</c> without the SIP keywords, of a SIP description that is not on the primary
+    /// description or not on the first two axes, and of any other convention (<c>-DSS</c>, <c>-WAT</c>...). Empty when nothing is ignored.
     /// </summary>
     public string UnappliedDistortion { get; }
 
@@ -404,17 +426,21 @@ public sealed class WorldCoordinateSystem
     private void PixelToWorldCore(ReadOnlySpan<double> pixel, Span<double> world, Span<double> x)
     {
         int n = AxisCount;
+        // the SIP polynomials act on the offsets from the reference pixel, before the linear transformation
+        double u0 = n > 0 ? pixel[0] - _crpix[0] : 0.0, u1 = n > 1 ? pixel[1] - _crpix[1] : 0.0;
+        if (_sip is not null) _sip.Apply(u0, u1, out u0, out u1);
         for (int i = 0; i < n; i++)
         {
             double sum = 0.0;
             for (int j = 0; j < n; j++)
-                if (_matrix[i, j] != 0.0) sum += _matrix[i, j] * (pixel[j] - _crpix[j]);   // a zero coefficient ignores a NaN pixel
+                if (_matrix[i, j] != 0.0) sum += _matrix[i, j] * (j == 0 ? u0 : j == 1 ? u1 : pixel[j] - _crpix[j]);   // a zero coefficient ignores a NaN pixel
             x[i] = sum;
         }
         for (int i = 0; i < n; i++)
             world[i] = _spectral[i] is { } s ? s.IntermediateToWorld(x[i]) : x[i] + _crval[i];
         if (_lng < 0) return;
         double px = x[_lng] * _celestialScale, py = x[_lat] * _celestialScale;
+        if (_tpv is not null) _tpv.Apply(px, py, out px, out py);
         if (_projection!.Inverse(px, py, out double phi, out double theta))
         {
             _rotation!.ToCelestial(phi, theta, out double lng, out double lat);
@@ -460,7 +486,7 @@ public sealed class WorldCoordinateSystem
         if (_lng >= 0)
         {
             _rotation!.ToNative(world[_lng], world[_lat], out double phi, out double theta);
-            if (_projection!.Forward(phi, theta, out double px, out double py))
+            if (_projection!.Forward(phi, theta, out double px, out double py) && (_tpv is null || _tpv.Remove(px, py, out px, out py)))
             {
                 x[_lng] = px / _celestialScale;
                 x[_lat] = py / _celestialScale;
@@ -475,8 +501,21 @@ public sealed class WorldCoordinateSystem
             double sum = 0.0;
             for (int j = 0; j < n; j++)
                 if (_inverse[i, j] != 0.0) sum += _inverse[i, j] * x[j];   // a zero coefficient ignores a NaN coordinate
-            pixel[i] = sum + _crpix[i];
+            pixel[i] = sum;
         }
+        if (_sip is not null)
+        {
+            if (_sip.Remove(pixel[0], pixel[1], out double u, out double v))
+            {
+                pixel[0] = u;
+                pixel[1] = v;
+            }
+            else
+            {
+                pixel[0] = pixel[1] = double.NaN;
+            }
+        }
+        for (int i = 0; i < n; i++) pixel[i] += _crpix[i];
     }
 }
 

@@ -43,7 +43,39 @@ The 27 celestial projections of the standard are supported. The first four chara
 | Quad cube | `TSC`, `CSC`, `QSC` |
 | HEALPix | `HPX` |
 
-`ProjectionCode` tells which one a description uses. A code that is not one of these throws a `NotSupportedException`. Distortion conventions appended to the code (`-SIP`, `-TPV`) are not part of the standard and are **not applied**: the plain projection is used, and `UnappliedDistortion` tells you that the description asked for one.
+`ProjectionCode` tells which one a description uses. A code that is not one of these throws a `NotSupportedException`.
+
+### Distortions: SIP and TPV
+
+Real images are not perfect: the optics bend the field. Two conventions that are not part of the standard, but are used by most plate solvers and astrometry software, write that distortion in the header. Both are applied in both directions, as astropy does, and `Distortion` tells which one a description uses (an empty string when there is none).
+
+| Convention | How it is written | What it does |
+| --- | --- | --- |
+| `SIP` | `-SIP` after the projection code of both celestial `CTYPE`s (`RA---TAN-SIP`), and the polynomials `A_ORDER`, `A_p_q`, `B_ORDER`, `B_p_q`, with optionally `AP_ORDER`, `AP_p_q`, `BP_ORDER`, `BP_p_q` | Adds polynomials of the pixel offsets from the reference pixel to those offsets, before the linear transformation. Any celestial projection can be used. |
+| `TPV` | The projection code `TPV` (`RA---TPV`), and the polynomials `PV1_0` to `PV1_39` and `PV2_0` to `PV2_39` of SCAMP | The projection is the tangent one, after polynomials of the intermediate coordinates up to the seventh degree. A coefficient that is not in the header is zero. |
+
+The inverse of a distortion is found by iteration, to a millionth of a pixel: `WorldToPixel` undoes `PixelToWorld` exactly. The `AP_p_q` and `BP_p_q` polynomials of a SIP description, which are only an approximation of the inverse, are used as the starting point of the search, so the result can differ a little from software that uses them as the answer.
+
+<!-- example: Wcs.Distortion -->
+```csharp
+var header = new FitsHeader()
+    .Set("CTYPE1", "RA---TAN-SIP").Set("CTYPE2", "DEC--TAN-SIP")
+    .Set("CRPIX1", 500.0).Set("CRPIX2", 500.0)
+    .Set("CRVAL1", 150.0).Set("CRVAL2", 30.0)
+    .Set("CDELT1", -0.0003).Set("CDELT2", 0.0003)
+    // A_2_0 moves a pixel by one pixel when it is 500 pixels away from the reference pixel along the first axis
+    .Set("A_ORDER", 2).Set("B_ORDER", 2).Set("A_2_0", 4e-6);
+var wcs = WorldCoordinateSystem.FromHeader(header);
+Console.WriteLine(wcs.Distortion);                      // SIP
+
+// The distortion is part of both directions: the pixel comes back where it started.
+double[] sky = wcs.PixelToWorld([1000.0, 500.0]);
+double[] pixel = wcs.WorldToPixel(sky);
+Console.WriteLine($"{pixel[0]:F3}, {pixel[1]:F3}");     // 1000.000, 500.000
+```
+<!-- /example -->
+
+SIP is used for the primary description and for the first two axes only. A description that announces `-SIP` without the keywords, or any other convention (`-DSS`, `-WAT`...), is converted with the plain projection, and `UnappliedDistortion` tells you which one was ignored. The orders are limited to 20, and a header whose polynomials are inconsistent (an `A_ORDER` without `B_ORDER`, for example) throws a `FitsException`.
 
 ### Points that have no image
 
