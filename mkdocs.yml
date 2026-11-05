@@ -37,6 +37,7 @@ nav:
     - Conventions: conventions.md
     - Reliability and limits: reliability.md
     - Standard coverage: standard-coverage.md
+    - Comparison with cfitsio and astropy: comparison.md
   # BEGIN API NAVIGATION
   - API reference:
     - Overview: api/index.md

@@ -19,7 +19,7 @@ new FitsFile().Add(packed).Save("frame.fits.fz", ChecksumPolicy.Always);
 ## Documentation
 
 The documentation is in [`docs/`](docs/index.md): a guide with examples (reading, writing, headers, images, tables, compression,
-checksums, world coordinates, time, conventions, limits), the [coverage of the standard](docs/standard-coverage.md), and a
+checksums, world coordinates, time, conventions, limits), the [coverage of the standard](docs/standard-coverage.md), the [measured comparison with cfitsio and astropy](docs/comparison.md), and a
 [reference of the whole public API](docs/api/index.md). It is plain Markdown, so it reads as is on GitHub and builds into a site with
 [MkDocs](https://www.mkdocs.org/).
 
