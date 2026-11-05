@@ -65,4 +65,5 @@ using Eleris.FitsNet.Wcs;          // world coordinates and time
 | [Conventions](conventions.md) | Header inheritance, Green Bank, Stokes, extension names |
 | [Reliability and limits](reliability.md) | Errors, limits for untrusted files, threads, memory |
 | [Standard coverage](standard-coverage.md) | Section by section status against FITS 4.0 |
+| [Comparison with cfitsio and astropy](comparison.md) | Measured speed against the reference C library and astropy, gaps included |
 | [API reference](api/index.md) | Every public type and member |

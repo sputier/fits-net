@@ -1,0 +1,41 @@
+{
+ "cfitsio": "4.060",
+ "fitsio": "1.4.2",
+ "ms": {
+  "Open (header only)": 0.0879999715834856,
+  "Open + read ushort": 14.327450073324144,
+  "Open + read float32": 29.104300076141953,
+  "Open + read float64": 43.270249967463315,
+  "Cutout 256x256": 1.0244499426335096,
+  "Cutout 16 x 3536 (narrow column)": 14.401000109501183,
+  "Cutout 3536 x 64 (64 whole rows)": 0.5047500599175692,
+  "Save to memory (ushort, no checksum)": 9.20700014103204,
+  "Save to memory, CHECKSUM + DATASUM": 15.538649982772768,
+  "Open + verify CHECKSUM/DATASUM (reads data)": 14.838350005447865,
+  "Compress Rice (ushort, to a file)": 68.67454992607236,
+  "Decompress Rice to ushort": 63.71990009211004,
+  "Compress Gzip1 (ushort, to a file)": 397.3110499791801,
+  "Decompress Gzip1 to ushort": 118.71405004058033,
+  "Compress Gzip2 (ushort, to a file)": 275.8605000562966,
+  "Decompress Gzip2 to ushort": 105.93919991515577,
+  "Compress HCompress (ushort, to a file)": 337.2358998749405,
+  "Decompress HCompress to ushort": 328.4160499460995,
+  "Compress float32 (Rice, SUBTRACTIVE_DITHER_1)": 522.1911000553519,
+  "Decompress float32 (Rice, SUBTRACTIVE_DITHER_1)": 72.44040002115071,
+  "Binary table 200k: save (to a file)": 49.40464999526739,
+  "Binary table 200k: open + read int column": 7.055399939417839,
+  "Binary table 200k: open + read double column": 6.944350083358586,
+  "Binary table 200k: open + read string column (list)": 28.545400011353195,
+  "ASCII table 200k: save (to a file)": 179.71729987766594,
+  "ASCII table 200k: open + read F column": 54.55600004643202,
+  "ASCII table 200k: open + read E column": 52.51175002194941,
+  "ASCII table 200k: open + read integer column": 34.06984999310225
+ },
+ "bytes": {
+  "Rice": 14610240,
+  "Gzip1": 15436800,
+  "Gzip2": 13576320,
+  "HCompress": 12265920,
+  "Float": 10094400
+ }
+}

@@ -42,3 +42,8 @@ Results (Markdown, CSV, HTML) are written to `BenchmarkDotNet.Artifacts/` in the
 * `FloatCompressionBenchmarks`: the price of quantization and dithering against lossless `GZIP_2` (`Quantization = None`).
 * `ImageIoBenchmarks`: `Cutout` shows that a region is read without loading the image; the checksum cases show the cost of
   `CHECKSUM`/`DATASUM`.
+
+## Against cfitsio and astropy
+
+`comparison/` holds the same operations written for cfitsio (through the `fitsio` package) and for astropy, the raw results, and the script that builds
+the tables of `docs/comparison.md`. See that page for the method and the figures.
