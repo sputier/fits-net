@@ -51,10 +51,7 @@ tag, and after any change to the workflow.
 
 A published version cannot be replaced. It can only be *unlisted* on nuget.org, so a mistake costs a new version number.
 
-## After the first publication
+## After a publication
 
-* The Installation section of `docs/index.md` and of `README.md` says the package is not on NuGet yet: replace it with
-  `dotnet add package Eleris.FitsNet`, then run `dotnet run --project tools/DocGen` (the pages are regenerated) and
-  `python tools/check_docs.py`.
 * To protect a later version against an accidental API break, set `<PackageValidationBaselineVersion>` in the project to the last
-  published version.
+  published version (`0.1.0` is on nuget.org since 2026-11-09).

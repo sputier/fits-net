@@ -34,11 +34,10 @@ Console.WriteLine($"First pixel: {pixels[0]}");
 
 ## Installation
 
-Eleris.FitsNet targets .NET 8 and .NET 10 and has no dependency. The package is not on NuGet yet: add the project to your solution and reference it.
+Eleris.FitsNet targets .NET 8 and .NET 10 and has no dependency. Add the [NuGet package](https://www.nuget.org/packages/Eleris.FitsNet):
 
 ```shell
-git clone https://github.com/sputier/fits-net.git
-dotnet add reference fits-net/src/Eleris.FitsNet/Eleris.FitsNet.csproj
+dotnet add package Eleris.FitsNet
 ```
 
 The classes live in three namespaces:

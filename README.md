@@ -3,6 +3,10 @@
 A pure managed .NET library (net10.0 and net8.0, no dependency) to read, write and manipulate **FITS** files, written against the
 FITS 4.0 standard and checked against astropy / cfitsio.
 
+```shell
+dotnet add package Eleris.FitsNet
+```
+
 ```csharp
 using var file = FitsFile.Open("frame.fits");               // reads on demand: a 25 MB frame opens in milliseconds
 var image = (ImageHdu)file.Primary;
