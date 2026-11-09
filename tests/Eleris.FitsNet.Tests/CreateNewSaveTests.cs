@@ -82,6 +82,75 @@ public class CreateNewSaveTests
     }
 
     [Fact]
+    public void Concurrent_saves_in_CreateNew_mode_create_the_file_once()
+    {
+        using var dir = new ScratchDirectory();
+        for (int round = 0; round < AsyncIoTests.ConcurrentRounds; round++)
+        {
+            string path = dir.File($"shared-{round}.fits");
+            var files = AsyncIoTests.Contending();
+            var outcome = new Exception?[files.Count];
+            using var start = new Barrier(files.Count);   // all the saves start together, each on its own thread
+            var threads = files.Select((f, k) => new Thread(() =>
+            {
+                Assert.True(start.SignalAndWait(TimeSpan.FromSeconds(30)), "the threads did not all start");
+                try
+                {
+                    f.Save(path, ChecksumPolicy.Always, FitsSaveMode.CreateNew);
+                }
+                catch (Exception e)
+                {
+                    outcome[k] = e;
+                }
+            })).ToList();
+            threads.ForEach(t => t.Start());
+            threads.ForEach(t => t.Join());
+            AsyncIoTests.CheckOneWinner(files, outcome, path);
+        }
+        Assert.Equal(AsyncIoTests.ConcurrentRounds, dir.Names().Length);   // no temporary file and no claim left
+    }
+
+    [Fact]
+    public void A_publication_that_fails_after_the_claim_leaves_nothing_at_the_target()
+    {
+        // The temporary file is missing, so the final move fails after the name was claimed (on Unix): the claim must be gone.
+        using var dir = new ScratchDirectory();
+        string target = dir.File("target.fits");
+        Assert.ThrowsAny<IOException>(() => FitsFile.PublishNew(dir.File("missing.tmp"), target));
+        Assert.Empty(dir.Names());
+    }
+
+    [Fact]
+    public void A_claim_is_removed_only_while_it_is_still_ours()
+    {
+        using var dir = new ScratchDirectory();
+        byte[] token = Guid.NewGuid().ToByteArray();
+        string path = dir.File("claimed.fits");
+
+        File.WriteAllBytes(path, token);
+        FitsFile.RemoveClaim(path, token);
+        Assert.False(File.Exists(path));                        // the whole claim
+
+        File.WriteAllBytes(path, token[..5]);
+        FitsFile.RemoveClaim(path, token);
+        Assert.False(File.Exists(path));                        // a claim cut short by a failed write
+
+        File.WriteAllBytes(path, []);
+        FitsFile.RemoveClaim(path, token);
+        Assert.False(File.Exists(path));                        // created, nothing written yet
+
+        File.WriteAllBytes(path, Guid.NewGuid().ToByteArray());
+        FitsFile.RemoveClaim(path, token);
+        Assert.True(File.Exists(path));                         // someone else's 16 bytes
+
+        File.WriteAllBytes(path, [.. token, 0]);
+        FitsFile.RemoveClaim(path, token);
+        Assert.True(File.Exists(path));                         // a longer file that starts like the claim
+
+        FitsFile.RemoveClaim(dir.File("absent.fits"), token);   // nothing there: nothing to do
+    }
+
+    [Fact]
     public void The_file_an_instance_was_opened_from_is_never_replaced()
     {
         using var dir = new ScratchDirectory();

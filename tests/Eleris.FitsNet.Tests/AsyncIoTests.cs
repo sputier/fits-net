@@ -364,34 +364,49 @@ public class AsyncIoTests
         Assert.Equal(cards, image.Header.Select(c => c.ToString()));
     }
 
+    // Enough rounds and contenders that a CreateNew which is not atomic (two saves both succeeding, the last one replacing the first)
+    // shows at once: before the fix, every round on Linux had 2 or 3 winners.
+    internal const int ConcurrentRounds = 25, Contenders = 8;
+
+    /// <summary>The files of one round: each with different pixels, so that the file on disk tells which save wrote it.</summary>
+    internal static List<FitsFile> Contending() =>
+        Enumerable.Range(0, Contenders).Select(k => new FitsFile().Add(ImageHdu.Create<int>(Enumerable.Repeat(k, 20_000).ToArray(), 20_000))).ToList();
+
+    /// <summary>Exactly one save won, the others were refused as such, and the file is the winner's, whole.</summary>
+    internal static void CheckOneWinner(IReadOnlyList<FitsFile> files, Exception?[] outcome, string path)
+    {
+        Assert.Equal(1, outcome.Count(e => e is null));
+        Assert.All(outcome.Where(e => e is not null), e => Assert.IsType<FitsFileExistsException>(e));
+        int winner = Array.FindIndex(outcome, e => e is null);
+        Assert.Equal(Planes.Save(files[winner], ChecksumPolicy.Always), File.ReadAllBytes(path));
+    }
+
     [Fact]
     public async Task Concurrent_asynchronous_saves_in_CreateNew_mode_create_the_file_once()
     {
         using var dir = new ScratchDirectory();
-        for (int round = 0; round < 10; round++)
+        for (int round = 0; round < ConcurrentRounds; round++)
         {
             string path = dir.File($"shared-{round}.fits");
-            var files = Enumerable.Range(0, 4).Select(k => new FitsFile().Add(ImageHdu.Create<int>(Enumerable.Repeat(k, 50_000).ToArray(), 50_000))).ToList();
-            var saves = files.Select(f => Task.Run(() => f.SaveAsync(path, ChecksumPolicy.Always, FitsSaveMode.CreateNew))).ToList();
-            var outcome = await Task.WhenAll(saves.Select(async t =>
+            var files = Contending();
+            var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var saves = files.Select(f => Task.Run(async () =>
             {
+                await start.Task;   // all the saves start together
                 try
                 {
-                    await t;
+                    await f.SaveAsync(path, ChecksumPolicy.Always, FitsSaveMode.CreateNew);
                     return (Exception?)null;
                 }
                 catch (Exception e)
                 {
                     return e;
                 }
-            }));
-
-            Assert.Equal(1, outcome.Count(e => e is null));                    // one save created the file
-            Assert.All(outcome.Where(e => e is not null), e => Assert.IsType<FitsFileExistsException>(e));
-            int winner = Array.FindIndex(outcome, e => e is null);
-            Assert.Equal(Planes.Save(files[winner]), File.ReadAllBytes(path)); // the file is the winner's, whole
+            })).ToList();
+            start.SetResult();
+            CheckOneWinner(files, await Task.WhenAll(saves), path);
         }
-        Assert.Equal(10, dir.Names().Length);                                   // no temporary file left
+        Assert.Equal(ConcurrentRounds, dir.Names().Length);   // no temporary file and no claim left
     }
 
     /// <summary>A stream whose synchronous Read and Write fail: only the asynchronous calls work.</summary>
