@@ -179,6 +179,16 @@ internal sealed class ChecksumStream : Stream
 
     public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
 
+    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested) return ValueTask.FromCanceled(cancellationToken);
+        Write(buffer.Span);
+        return ValueTask.CompletedTask;
+    }
+
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
     public override bool CanRead => false;
 
     public override bool CanSeek => false;

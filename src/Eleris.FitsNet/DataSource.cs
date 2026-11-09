@@ -32,6 +32,101 @@ internal abstract class DataSource
     /// <summary>True when the bytes are held in memory as they are stored, so that <see cref="ReadMemory"/> costs nothing.</summary>
     public virtual bool IsInMemory => false;
 
+    // ---- Asynchronous access: only a source that reads a file does I/O; the others complete synchronously -------------
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadRange(long, Span{byte})"/>. The default reads synchronously: it is for the sources whose
+    /// bytes are in memory or computed, which do no I/O.
+    /// </summary>
+    public virtual ValueTask ReadRangeAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ReadRange(offset, destination.Span);
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Asynchronous version of <see cref="ReadAll"/>, checking <paramref name="cancellationToken"/> between blocks.</summary>
+    public async Task<byte[]> ReadAllAsync(CancellationToken cancellationToken)
+    {
+        if (IsInMemory) return ReadAll();
+        if (Length > Array.MaxLength) throw new FitsException("HDU data is larger than 2 GB and cannot be loaded into one array.");
+        var bytes = GC.AllocateUninitializedArray<byte>((int)Length);
+        for (int done = 0, n; done < bytes.Length; done += n)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            n = Math.Min(CancellableWriteBlock, bytes.Length - done);
+            await ReadRangeAsync(done, bytes.AsMemory(done, n), cancellationToken).ConfigureAwait(false);
+        }
+        return bytes;
+    }
+
+    /// <summary>
+    /// Asynchronous version of <see cref="CopyTo"/>: reads a block (asynchronously from a file), writes it asynchronously, and checks
+    /// <paramref name="cancellationToken"/> between blocks.
+    /// </summary>
+    public virtual async Task CopyToAsync(Stream destination, CancellationToken cancellationToken)
+    {
+        if (Length == 0) return;
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent((int)Math.Min(CancellableWriteBlock, Length));
+        try
+        {
+            for (long done = 0; done < Length;)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int n = (int)Math.Min(buffer.Length, Length - done);
+                await ReadRangeAsync(done, buffer.AsMemory(0, n), cancellationToken).ConfigureAwait(false);
+                await destination.WriteAsync(buffer.AsMemory(0, n), cancellationToken).ConfigureAwait(false);
+                done += n;
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    /// <summary>Writes data held in memory asynchronously, a block at a time, checking <paramref name="cancellationToken"/> between blocks.</summary>
+    private protected static async Task WriteAsync(Stream destination, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    {
+        for (int done = 0, n; done < data.Length; done += n)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            n = Math.Min(CancellableWriteBlock, data.Length - done);
+            await destination.WriteAsync(data.Slice(done, n), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadInChunks"/>: the chunks of a file are read asynchronously, and <paramref name="reader"/>
+    /// (the conversion) runs synchronously between two reads. Data in memory is passed as <see cref="ReadInChunks"/> does.
+    /// </summary>
+    public async Task ReadInChunksAsync(int elementSize, ChunkReader reader, CancellationToken cancellationToken)
+    {
+        if (IsInMemory)
+        {
+            ReadInChunks(elementSize, reader, cancellationToken);
+            return;
+        }
+        int count = ElementCount(elementSize);
+        if (count == 0) return;
+        int perChunk = Math.Max(1, ChunkBytes / elementSize);
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(perChunk * elementSize);
+        try
+        {
+            for (int first = 0; first < count; first += perChunk)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int length = Math.Min(perChunk, count - first) * elementSize;
+                await ReadRangeAsync((long)first * elementSize, buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+                reader(buffer.AsSpan(0, length), first);
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
     /// <summary>The number of values of <paramref name="elementSize"/> bytes that the data holds, as the length of an array.</summary>
     public int ElementCount(int elementSize)
     {
@@ -124,6 +219,8 @@ internal sealed class MemoryDataSource(byte[] data) : DataSource
 
     public override void CopyTo(Stream destination, CancellationToken cancellationToken = default) =>
         Write(destination, data, 0, data.Length, cancellationToken);
+
+    public override Task CopyToAsync(Stream destination, CancellationToken cancellationToken) => WriteAsync(destination, data, cancellationToken);
 }
 
 /// <summary>A slice of a larger buffer shared by all the HDUs of a file read into memory (no per-HDU copy).</summary>
@@ -145,6 +242,9 @@ internal sealed class SegmentDataSource(byte[] buffer, int offset, int length) :
 
     public override void CopyTo(Stream destination, CancellationToken cancellationToken = default) =>
         Write(destination, buffer, offset, length, cancellationToken);
+
+    public override Task CopyToAsync(Stream destination, CancellationToken cancellationToken) =>
+        WriteAsync(destination, buffer.AsMemory(offset, length), cancellationToken);
 }
 
 /// <summary>Lazily reads a byte range of a seekable stream (typically the source file). Not safe for concurrent use.</summary>
@@ -186,6 +286,33 @@ internal sealed class StreamDataSource(Stream stream, long offset, long length) 
         try
         {
             stream.ReadExactly(destination);
+        }
+        catch (EndOfStreamException)
+        {
+            throw new FitsException(truncated);
+        }
+    }
+
+    public override async ValueTask ReadRangeAsync(long start, Memory<byte> destination, CancellationToken cancellationToken)
+    {
+        if (start < 0 || start > length || destination.Length > length - start) throw new ArgumentOutOfRangeException(nameof(start));
+        const string truncated = "The file ends before the end of the data announced by the header.";
+        if (_handle is not null)
+        {
+            long position = offset + start;
+            while (destination.Length > 0)
+            {
+                int read = await RandomAccess.ReadAsync(_handle, destination, position, cancellationToken).ConfigureAwait(false);
+                if (read == 0) throw new FitsException(truncated);
+                destination = destination[read..];
+                position += read;
+            }
+            return;
+        }
+        stream.Position = offset + start;
+        try
+        {
+            await stream.ReadExactlyAsync(destination, cancellationToken).ConfigureAwait(false);
         }
         catch (EndOfStreamException)
         {
@@ -305,6 +432,30 @@ internal sealed class PlaneDataSource<T> : DataSource where T : unmanaged
                     Span<byte> block = buffer.AsSpan(0, n * _size);
                     Encode(plane.Span.Slice(start, n), block);
                     destination.Write(block);
+                }
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public override async Task CopyToAsync(Stream destination, CancellationToken cancellationToken)
+    {
+        if (Length == 0) return;
+        int perBlock = Math.Max(1, BlockBytes / _size);
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent((int)Math.Min(perBlock * _size, Length));
+        try
+        {
+            foreach (var plane in _planes)
+            {
+                for (int start = 0; start < plane.Length; start += perBlock)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int n = Math.Min(perBlock, plane.Length - start);
+                    Encode(plane.Span.Slice(start, n), buffer.AsSpan(0, n * _size));   // the conversion, between two writes
+                    await destination.WriteAsync(buffer.AsMemory(0, n * _size), cancellationToken).ConfigureAwait(false);
                 }
             }
         }

@@ -118,6 +118,28 @@ public static class FilesExamples
         #endregion
     }
 
+    public static void Async()
+    {
+        AsyncCore().GetAwaiter().GetResult();   // the examples are run one after the other by a synchronous runner
+    }
+
+    private static async Task AsyncCore()
+    {
+        #region Example:Files.Async
+        // The file is read and written with asynchronous I/O; the conversion of the pixels runs between two reads or writes.
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var file = FitsFile.Open("m42.fits");
+        var image = (ImageHdu)file.Primary;
+
+        float[] pixels = await image.ReadPixelsAsync<float>(cancel.Token);
+        ushort[] rows = await image.ReadRegionAsync<ushort>(origin: [0, 100], shape: [640, 16], cancel.Token);
+        Console.WriteLine($"{pixels.Length} pixels, {rows.Length} in the rows");
+
+        // The same guarantees as Save: a temporary file, no file left after a failure, and CreateNew never replaces a file.
+        await file.SaveAsync("m42-async.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew, cancel.Token);
+        #endregion
+    }
+
     public static void Options()
     {
         #region Example:Files.Options

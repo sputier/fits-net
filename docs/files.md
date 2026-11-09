@@ -164,6 +164,28 @@ catch (OperationCanceledException)
 
 A cancelled save to a path deletes its temporary file: the target, if there was one, is as it was, and the headers and the HDUs are as they were before the call. The token is checked until the temporary file is complete; the move that puts it in place is not interrupted. A cancelled save to a stream also restores the headers, but the stream may already hold the beginning of the file.
 
+### Asynchronous I/O
+
+`ReadPixelsAsync<T>`, `ReadRawPixelsAsync<T>`, `ReadRegionAsync<T>` and `ReadRawRegionAsync<T>` of an [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md), `ReadPixelsAsync<T>` and `ReadRawPixelsAsync<T>` of a [`CompressedImageHdu`](api/Eleris.FitsNet.CompressedImageHdu.md), and `FitsFile.SaveAsync` to a stream or to a path, are the asynchronous versions of the methods above, with the same results, byte for byte, and the same guarantees. The data of a file opened with `Open` is read with asynchronous I/O, and a save writes every block with `WriteAsync` (a save to a path opens its temporary file for asynchronous I/O). The conversion of the pixels, the checksums and the decompression of the tiles stay synchronous: they run between two reads or writes. Flushing the temporary file to the disk and moving it in place have no asynchronous version in the system and are done synchronously.
+
+<!-- example: Files.Async -->
+```csharp
+// The file is read and written with asynchronous I/O; the conversion of the pixels runs between two reads or writes.
+using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+using var file = FitsFile.Open("m42.fits");
+var image = (ImageHdu)file.Primary;
+
+float[] pixels = await image.ReadPixelsAsync<float>(cancel.Token);
+ushort[] rows = await image.ReadRegionAsync<ushort>(origin: [0, 100], shape: [640, 16], cancel.Token);
+Console.WriteLine($"{pixels.Length} pixels, {rows.Length} in the rows");
+
+// The same guarantees as Save: a temporary file, no file left after a failure, and CreateNew never replaces a file.
+await file.SaveAsync("m42-async.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew, cancel.Token);
+```
+<!-- /example -->
+
+How the system carries out the asynchronous I/O depends on the platform. On Windows, the temporary file of a save is written with overlapped I/O. A file opened with `Open` keeps a synchronous handle, which keeps the synchronous reads fast, so .NET carries out its asynchronous reads on its thread pool: that is also what .NET does for every file on Linux and macOS. Either way the calling thread does not wait for the file. Work that does not wait for I/O runs on the thread that calls or continues the method: the conversion of each block, the decompression of the tiles, and the whole read of data that is already in memory (`FitsFile.Read`, `Create`, `CreateFromPlanes`), which returns a completed task. Flushing a large temporary file to the disk can take a noticeable time. Do not use the file or its HDUs until the task has completed.
+
 ## Checksums when saving
 
 The second argument of `Save` is a [`ChecksumPolicy`](api/Eleris.FitsNet.ChecksumPolicy.md): `Auto` (the default) keeps up to date the checksums that already exist, `Always` writes them in every HDU, `Never` removes them. See [Checksums](checksums.md).

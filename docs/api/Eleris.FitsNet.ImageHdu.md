@@ -33,12 +33,16 @@ public sealed class ImageHdu : Hdu
 | [`CreateFromPlanes<T>(IReadOnlyList<ReadOnlyMemory<T>>, long[])`](#eleris-fitsnet-imagehdu-createfromplanes-1-system-collections-generic-ireadonlylist-system-readonlymemory-0-system-int64) | Creates an image from planes, without copying them: a plane is all the pixels that share one index on the last axis (the planes of a cube, the rows of a 2D image). |
 | [`ReadPixels<T>()`](#eleris-fitsnet-imagehdu-readpixels-1) | Reads physical pixel values. |
 | [`ReadPixels<T>(CancellationToken)`](#eleris-fitsnet-imagehdu-readpixels-1-system-threading-cancellationtoken) | Reads physical pixel values, as [`ImageHdu.ReadPixels`](#eleris-fitsnet-imagehdu-readpixels-1) does, checking `cancellationToken` between blocks of data. |
+| [`ReadPixelsAsync<T>(CancellationToken)`](#eleris-fitsnet-imagehdu-readpixelsasync-1-system-threading-cancellationtoken) | Asynchronous version of [`ImageHdu.ReadPixels`](#eleris-fitsnet-imagehdu-readpixels-1): the data of a lazily opened file is read with asynchronous I/O, a block at a time, and each block is converted between two reads. |
 | [`ReadRawPixels<T>()`](#eleris-fitsnet-imagehdu-readrawpixels-1) | Reads the stored values without applying BSCALE/BZERO or BLANK. `T` must match BITPIX (otherwise [`InvalidOperationException`](https://learn.microsoft.com/dotnet/api/system.invalidoperationexception)). |
 | [`ReadRawPixels<T>(CancellationToken)`](#eleris-fitsnet-imagehdu-readrawpixels-1-system-threading-cancellationtoken) | Reads the stored values, as [`ImageHdu.ReadRawPixels`](#eleris-fitsnet-imagehdu-readrawpixels-1) does, checking `cancellationToken` between blocks of data. |
+| [`ReadRawPixelsAsync<T>(CancellationToken)`](#eleris-fitsnet-imagehdu-readrawpixelsasync-1-system-threading-cancellationtoken) | Asynchronous version of [`ImageHdu.ReadRawPixels`](#eleris-fitsnet-imagehdu-readrawpixels-1): the data of a lazily opened file is read with asynchronous I/O, a block at a time, and each block is converted between two reads. |
 | [`ReadRawRegion<T>(long[], long[])`](#eleris-fitsnet-imagehdu-readrawregion-1-system-int64-system-int64) | Reads stored pixel values of a region (see [`ImageHdu.Subimage`](#eleris-fitsnet-imagehdu-subimage-system-int64-system-int64) and [`ImageHdu.ReadRawPixels`](#eleris-fitsnet-imagehdu-readrawpixels-1)). |
 | [`ReadRawRegion<T>(long[], long[], CancellationToken)`](#eleris-fitsnet-imagehdu-readrawregion-1-system-int64-system-int64-system-threading-cancellationtoken) | Reads stored pixel values of a region, as [`ImageHdu.ReadRawRegion`](#eleris-fitsnet-imagehdu-readrawregion-1-system-int64-system-int64) does, checking `cancellationToken` between the runs of pixels read and the blocks of values converted. |
+| [`ReadRawRegionAsync<T>(long[], long[], CancellationToken)`](#eleris-fitsnet-imagehdu-readrawregionasync-1-system-int64-system-int64-system-threading-cancellationtoken) | Asynchronous version of [`ImageHdu.ReadRawRegion`](#eleris-fitsnet-imagehdu-readrawregion-1-system-int64-system-int64): the bytes of the region are read from a lazily opened file with asynchronous I/O. `cancellationToken` is checked as [`ImageHdu.ReadRawRegion`](#eleris-fitsnet-imagehdu-readrawregion-1-system-int64-system-int64-system-threading-cancellationtoken) does. |
 | [`ReadRegion<T>(long[], long[])`](#eleris-fitsnet-imagehdu-readregion-1-system-int64-system-int64) | Reads physical pixel values of a region (see [`ImageHdu.Subimage`](#eleris-fitsnet-imagehdu-subimage-system-int64-system-int64) and [`ImageHdu.ReadPixels`](#eleris-fitsnet-imagehdu-readpixels-1)). |
 | [`ReadRegion<T>(long[], long[], CancellationToken)`](#eleris-fitsnet-imagehdu-readregion-1-system-int64-system-int64-system-threading-cancellationtoken) | Reads physical pixel values of a region, as [`ImageHdu.ReadRegion`](#eleris-fitsnet-imagehdu-readregion-1-system-int64-system-int64) does, checking `cancellationToken` between the runs of pixels read and the blocks of values converted. |
+| [`ReadRegionAsync<T>(long[], long[], CancellationToken)`](#eleris-fitsnet-imagehdu-readregionasync-1-system-int64-system-int64-system-threading-cancellationtoken) | Asynchronous version of [`ImageHdu.ReadRegion`](#eleris-fitsnet-imagehdu-readregion-1-system-int64-system-int64): the bytes of the region are read from a lazily opened file with asynchronous I/O, then converted. |
 | [`SetPixels<T>(ReadOnlySpan<T>, long[])`](#eleris-fitsnet-imagehdu-setpixels-1-system-readonlyspan-0-system-int64) | Replaces the pixel data, BITPIX and axes; BSCALE, BZERO and BLANK are reset (BZERO is set for unsigned types). |
 | [`Subimage(long[], long[])`](#eleris-fitsnet-imagehdu-subimage-system-int64-system-int64) | Extracts a rectangular part of the image as a new image. |
 | [`Subimage(long[], long[], CancellationToken)`](#eleris-fitsnet-imagehdu-subimage-system-int64-system-int64-system-threading-cancellationtoken) | Extracts a rectangular part of the image as a new image, as [`ImageHdu.Subimage`](#eleris-fitsnet-imagehdu-subimage-system-int64-system-int64) does, checking `cancellationToken` between the runs of pixels read, and every megabyte within a long run. |
@@ -181,6 +185,27 @@ public T[] ReadPixels<T>(CancellationToken cancellationToken) where T : unmanage
 
 - [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
 
+<a id="eleris-fitsnet-imagehdu-readpixelsasync-1-system-threading-cancellationtoken"></a>
+### `ReadPixelsAsync<T>(CancellationToken)`
+
+Asynchronous version of [`ImageHdu.ReadPixels`](#eleris-fitsnet-imagehdu-readpixels-1): the data of a lazily opened file is read with asynchronous I/O, a block at a time, and each block is converted between two reads. `cancellationToken` is checked between blocks. Data already in memory has no I/O to wait for: it is converted on the calling thread.
+
+```csharp
+public Task<T[]> ReadPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the physical values are returned as (`BSCALE` and `BZERO` applied), for example `float` or `double`.
+
+**Parameters**
+
+- `cancellationToken` — A token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
 <a id="eleris-fitsnet-imagehdu-readrawpixels-1"></a>
 ### `ReadRawPixels<T>()`
 
@@ -210,6 +235,27 @@ public T[] ReadRawPixels<T>(CancellationToken cancellationToken) where T : unman
 **Parameters**
 
 - `cancellationToken` — The token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
+<a id="eleris-fitsnet-imagehdu-readrawpixelsasync-1-system-threading-cancellationtoken"></a>
+### `ReadRawPixelsAsync<T>(CancellationToken)`
+
+Asynchronous version of [`ImageHdu.ReadRawPixels`](#eleris-fitsnet-imagehdu-readrawpixels-1): the data of a lazily opened file is read with asynchronous I/O, a block at a time, and each block is converted between two reads. `cancellationToken` is checked between blocks. Data already in memory has no I/O to wait for: it is converted on the calling thread.
+
+```csharp
+public Task<T[]> ReadRawPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the stored values are returned as.
+
+**Parameters**
+
+- `cancellationToken` — A token that cancels the read.
 
 **Exceptions**
 
@@ -256,6 +302,29 @@ public T[] ReadRawRegion<T>(long[] origin, long[] shape, CancellationToken cance
 
 - [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
 
+<a id="eleris-fitsnet-imagehdu-readrawregionasync-1-system-int64-system-int64-system-threading-cancellationtoken"></a>
+### `ReadRawRegionAsync<T>(long[], long[], CancellationToken)`
+
+Asynchronous version of [`ImageHdu.ReadRawRegion`](#eleris-fitsnet-imagehdu-readrawregion-1-system-int64-system-int64): the bytes of the region are read from a lazily opened file with asynchronous I/O. `cancellationToken` is checked as [`ImageHdu.ReadRawRegion`](#eleris-fitsnet-imagehdu-readrawregion-1-system-int64-system-int64-system-threading-cancellationtoken) does.
+
+```csharp
+public Task<T[]> ReadRawRegionAsync<T>(long[] origin, long[] shape, CancellationToken cancellationToken = default) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the stored values are returned as.
+
+**Parameters**
+
+- `origin` — The zero-based position of the first pixel of the region on each axis.
+- `shape` — The length of the region on each axis.
+- `cancellationToken` — A token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
 <a id="eleris-fitsnet-imagehdu-readregion-1-system-int64-system-int64"></a>
 ### `ReadRegion<T>(long[], long[])`
 
@@ -292,6 +361,29 @@ public T[] ReadRegion<T>(long[] origin, long[] shape, CancellationToken cancella
 - `origin` — The zero-based position of the first pixel of the region on each axis.
 - `shape` — The length of the region on each axis.
 - `cancellationToken` — The token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
+<a id="eleris-fitsnet-imagehdu-readregionasync-1-system-int64-system-int64-system-threading-cancellationtoken"></a>
+### `ReadRegionAsync<T>(long[], long[], CancellationToken)`
+
+Asynchronous version of [`ImageHdu.ReadRegion`](#eleris-fitsnet-imagehdu-readregion-1-system-int64-system-int64): the bytes of the region are read from a lazily opened file with asynchronous I/O, then converted. `cancellationToken` is checked as [`ImageHdu.ReadRegion`](#eleris-fitsnet-imagehdu-readregion-1-system-int64-system-int64-system-threading-cancellationtoken) does.
+
+```csharp
+public Task<T[]> ReadRegionAsync<T>(long[] origin, long[] shape, CancellationToken cancellationToken = default) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the physical values are returned as.
+
+**Parameters**
+
+- `origin` — The zero-based position of the first pixel of the region on each axis.
+- `shape` — The length of the region on each axis.
+- `cancellationToken` — A token that cancels the read.
 
 **Exceptions**
 

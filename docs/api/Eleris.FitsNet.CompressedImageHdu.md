@@ -33,8 +33,10 @@ public sealed class CompressedImageHdu : BinaryTableHdu
 | [`IsCompressedImage(FitsHeader)`](#eleris-fitsnet-compressedimagehdu-iscompressedimage-eleris-fitsnet-fitsheader) | Whether a binary table header describes a tile-compressed image. |
 | [`ReadPixels<T>()`](#eleris-fitsnet-compressedimagehdu-readpixels-1) | Decompresses and reads physical pixel values, like [`ImageHdu.ReadPixels`](Eleris.FitsNet.ImageHdu.md#eleris-fitsnet-imagehdu-readpixels-1). |
 | [`ReadPixels<T>(CancellationToken)`](#eleris-fitsnet-compressedimagehdu-readpixels-1-system-threading-cancellationtoken) | Decompresses and reads physical pixel values, as [`CompressedImageHdu.ReadPixels`](#eleris-fitsnet-compressedimagehdu-readpixels-1) does, checking `cancellationToken` before each tile. |
+| [`ReadPixelsAsync<T>(CancellationToken)`](#eleris-fitsnet-compressedimagehdu-readpixelsasync-1-system-threading-cancellationtoken) | Asynchronous version of [`CompressedImageHdu.ReadPixels`](#eleris-fitsnet-compressedimagehdu-readpixels-1): the compressed data of a lazily opened file is read with asynchronous I/O, then the tiles are decompressed on all the cores as [`CompressedImageHdu.ReadPixels`](#eleris-fitsnet-compressedimagehdu-readpixels-1-system-threading-cancellationtoken) does, checking `cancellationToken` between blocks of the read and before each tile. |
 | [`ReadRawPixels<T>()`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1) | Decompresses and reads the stored pixel values, like [`ImageHdu.ReadRawPixels`](Eleris.FitsNet.ImageHdu.md#eleris-fitsnet-imagehdu-readrawpixels-1). |
 | [`ReadRawPixels<T>(CancellationToken)`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1-system-threading-cancellationtoken) | Decompresses and reads the stored pixel values, as [`CompressedImageHdu.ReadRawPixels`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1) does, checking `cancellationToken` before each tile. |
+| [`ReadRawPixelsAsync<T>(CancellationToken)`](#eleris-fitsnet-compressedimagehdu-readrawpixelsasync-1-system-threading-cancellationtoken) | Asynchronous version of [`CompressedImageHdu.ReadRawPixels`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1): the compressed data of a lazily opened file is read with asynchronous I/O, then decompressed as [`CompressedImageHdu.ReadRawPixels`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1-system-threading-cancellationtoken) does. |
 | [`RemoveColumn(int)`](#eleris-fitsnet-compressedimagehdu-removecolumn-system-int32) | Always throws [`NotSupportedException`](https://learn.microsoft.com/dotnet/api/system.notsupportedexception): the keywords that describe the compressed form would no longer match. |
 | [`RemoveRows(long, long)`](#eleris-fitsnet-compressedimagehdu-removerows-system-int64-system-int64) | Always throws [`NotSupportedException`](https://learn.microsoft.com/dotnet/api/system.notsupportedexception): the keywords that describe the compressed form would no longer match. |
 | [`SetColumns(IReadOnlyList<TableColumn>)`](#eleris-fitsnet-compressedimagehdu-setcolumns-system-collections-generic-ireadonlylist-eleris-fitsnet-tablecolumn) | Always throws [`NotSupportedException`](https://learn.microsoft.com/dotnet/api/system.notsupportedexception): the keywords that describe the compressed form would no longer match. |
@@ -229,6 +231,27 @@ public T[] ReadPixels<T>(CancellationToken cancellationToken) where T : unmanage
 
 - [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
 
+<a id="eleris-fitsnet-compressedimagehdu-readpixelsasync-1-system-threading-cancellationtoken"></a>
+### `ReadPixelsAsync<T>(CancellationToken)`
+
+Asynchronous version of [`CompressedImageHdu.ReadPixels`](#eleris-fitsnet-compressedimagehdu-readpixels-1): the compressed data of a lazily opened file is read with asynchronous I/O, then the tiles are decompressed on all the cores as [`CompressedImageHdu.ReadPixels`](#eleris-fitsnet-compressedimagehdu-readpixels-1-system-threading-cancellationtoken) does, checking `cancellationToken` between blocks of the read and before each tile.
+
+```csharp
+public Task<T[]> ReadPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the physical values are returned as, for example `float` or `double`.
+
+**Parameters**
+
+- `cancellationToken` — A token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
 <a id="eleris-fitsnet-compressedimagehdu-readrawpixels-1"></a>
 ### `ReadRawPixels<T>()`
 
@@ -258,6 +281,27 @@ public T[] ReadRawPixels<T>(CancellationToken cancellationToken) where T : unman
 **Parameters**
 
 - `cancellationToken` — The token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
+<a id="eleris-fitsnet-compressedimagehdu-readrawpixelsasync-1-system-threading-cancellationtoken"></a>
+### `ReadRawPixelsAsync<T>(CancellationToken)`
+
+Asynchronous version of [`CompressedImageHdu.ReadRawPixels`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1): the compressed data of a lazily opened file is read with asynchronous I/O, then decompressed as [`CompressedImageHdu.ReadRawPixels`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1-system-threading-cancellationtoken) does.
+
+```csharp
+public Task<T[]> ReadRawPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the stored values are returned as.
+
+**Parameters**
+
+- `cancellationToken` — A token that cancels the read.
 
 **Exceptions**
 

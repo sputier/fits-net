@@ -55,26 +55,34 @@ internal static class BigEndian
     }
 
     /// <summary>Reads all the values of a data source, a chunk at a time so that nothing but the result is allocated.</summary>
-    public static T[] ReadArray<T>(DataSource source, CancellationToken cancellationToken = default) where T : unmanaged
+    public static T[] ReadArray<T>(DataSource source, CancellationToken cancellationToken = default) where T : unmanaged =>
+        ArrayRead<T>(source).Run(source, cancellationToken);
+
+    /// <summary>The read of <see cref="ReadArray{T}"/>, to run synchronously or asynchronously.</summary>
+    public static ChunkedRead<T[]> ArrayRead<T>(DataSource source) where T : unmanaged
     {
         int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
         var result = GC.AllocateUninitializedArray<T>(source.ElementCount(size));
-        source.ReadInChunks(size, (bytes, first) => Read(bytes, result.AsSpan(first, bytes.Length / size)), cancellationToken);
-        return result;
+        return new ChunkedRead<T[]>(result, size, (bytes, first) => Read(bytes, result.AsSpan(first, bytes.Length / size)));
     }
 
-    /// <summary>Like <see cref="ReadArray{T}"/>, then flips the bits of <paramref name="mask"/> (the unsigned integer conventions: BZERO = 2^(n-1)).</summary>
-    public static T[] ReadArrayXor<T>(DataSource source, T mask, CancellationToken cancellationToken = default) where T : unmanaged, IBitwiseOperators<T, T, T>
+    /// <summary>Like <see cref="ReadArray{T}"/>, then flips the bits of <paramref name="mask"/>.</summary>
+    public static T[] ReadArrayXor<T>(DataSource source, T mask, CancellationToken cancellationToken = default) where T : unmanaged, IBitwiseOperators<T, T, T> =>
+        ArrayXorRead(source, mask).Run(source, cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="ArrayRead{T}"/>, then flips the bits of <paramref name="mask"/> (the unsigned integer conventions: BZERO = 2^(n-1)).
+    /// </summary>
+    public static ChunkedRead<T[]> ArrayXorRead<T>(DataSource source, T mask) where T : unmanaged, IBitwiseOperators<T, T, T>
     {
         int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
         var result = GC.AllocateUninitializedArray<T>(source.ElementCount(size));
-        source.ReadInChunks(size, (bytes, first) =>
+        return new ChunkedRead<T[]>(result, size, (bytes, first) =>
         {
             Span<T> part = result.AsSpan(first, bytes.Length / size);
             Read(bytes, part);
             Xor(part, mask);
-        }, cancellationToken);
-        return result;
+        });
     }
 
     /// <summary>Fills <paramref name="destination"/> with the big-endian values in <paramref name="data"/>, in one pass.</summary>

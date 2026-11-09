@@ -41,6 +41,8 @@ public sealed class FitsFile : IDisposable, IReadOnlyList<Hdu>
 | [`Save(Stream, ChecksumPolicy, CancellationToken)`](#eleris-fitsnet-fitsfile-save-system-io-stream-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken) | Writes the file to a stream, checking `cancellationToken` between blocks of data. |
 | [`Save(string, ChecksumPolicy, CancellationToken)`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken) | Writes the file to `path` as [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy) does, checking `cancellationToken` between blocks of data. |
 | [`Save(string, ChecksumPolicy, FitsSaveMode, CancellationToken)`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken) | Writes the file to `path`, choosing with `mode` what happens when a file already exists there. |
+| [`SaveAsync(Stream, ChecksumPolicy, CancellationToken)`](#eleris-fitsnet-fitsfile-saveasync-system-io-stream-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken) | Writes the file to a stream asynchronously: the data of a lazily opened file is read asynchronously and every block is written with [`Stream.WriteAsync`](https://learn.microsoft.com/dotnet/api/system.io.stream); the conversion of the data runs between the writes. |
+| [`SaveAsync(string, ChecksumPolicy, FitsSaveMode, CancellationToken)`](#eleris-fitsnet-fitsfile-saveasync-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken) | Writes the file to `path` asynchronously, with the guarantees of [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken): the temporary file is written with asynchronous I/O (and the data of a lazily opened file read asynchronously), a cancelled or failed save leaves no temporary file, an existing target untouched and the headers as they were, and [`FitsSaveMode.CreateNew`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-createnew) never replaces a file. |
 | [`VerifyChecksums()`](#eleris-fitsnet-fitsfile-verifychecksums) | Checks CHECKSUM and DATASUM of every HDU (see [`Hdu.VerifyChecksum`](Eleris.FitsNet.Hdu.md#eleris-fitsnet-hdu-verifychecksum)). |
 
 ## Constructor details
@@ -293,6 +295,48 @@ public void Save(string path, ChecksumPolicy checksums, FitsSaveMode mode, Cance
 - `checksums` — What to do with the `CHECKSUM` and `DATASUM` keywords.
 - `mode` — Whether an existing file may be replaced.
 - `cancellationToken` — The token that cancels the save.
+
+**Exceptions**
+
+- [`FitsFileExistsException`](Eleris.FitsNet.FitsFileExistsException.md) — `mode` is [`FitsSaveMode.CreateNew`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-createnew) and something exists at `path`, before or after the file was written.
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled before the file was put in place.
+- [`IOException`](https://learn.microsoft.com/dotnet/api/system.io.ioexception) — The file could not be written or put in place (see [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy)).
+- [`ArgumentOutOfRangeException`](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception) — `mode` is not a value of [`FitsSaveMode`](Eleris.FitsNet.FitsSaveMode.md).
+
+<a id="eleris-fitsnet-fitsfile-saveasync-system-io-stream-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken"></a>
+### `SaveAsync(Stream, ChecksumPolicy, CancellationToken)`
+
+Writes the file to a stream asynchronously: the data of a lazily opened file is read asynchronously and every block is written with [`Stream.WriteAsync`](https://learn.microsoft.com/dotnet/api/system.io.stream); the conversion of the data runs between the writes. The bytes written are those of [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-io-stream-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken), with the same cancellation: the headers and the state of the HDUs are restored, but the stream may already hold the beginning of the file. Like every member of this class, it must not run at the same time as another use of the file or of its HDUs: do not edit them until the task has completed.
+
+```csharp
+public Task SaveAsync(Stream stream, ChecksumPolicy checksums = ChecksumPolicy.Auto, CancellationToken cancellationToken = default)
+```
+
+**Parameters**
+
+- `stream` — The destination.
+- `checksums` — What to do with the CHECKSUM and DATASUM keywords.
+- `cancellationToken` — A token that cancels the save.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled before the file was written completely.
+
+<a id="eleris-fitsnet-fitsfile-saveasync-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken"></a>
+### `SaveAsync(string, ChecksumPolicy, FitsSaveMode, CancellationToken)`
+
+Writes the file to `path` asynchronously, with the guarantees of [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken): the temporary file is written with asynchronous I/O (and the data of a lazily opened file read asynchronously), a cancelled or failed save leaves no temporary file, an existing target untouched and the headers as they were, and [`FitsSaveMode.CreateNew`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-createnew) never replaces a file. Flushing the temporary file to the disk and moving it in place are done synchronously: the system offers no asynchronous version of them, and the flush of a large file can take a noticeable time. Do not use the file or its HDUs until the task has completed.
+
+```csharp
+public Task SaveAsync(string path, ChecksumPolicy checksums = ChecksumPolicy.Auto, FitsSaveMode mode = FitsSaveMode.Overwrite, CancellationToken cancellationToken = default)
+```
+
+**Parameters**
+
+- `path` — The path of the file to write.
+- `checksums` — What to do with the `CHECKSUM` and `DATASUM` keywords.
+- `mode` — Whether an existing file may be replaced.
+- `cancellationToken` — A token that cancels the save.
 
 **Exceptions**
 

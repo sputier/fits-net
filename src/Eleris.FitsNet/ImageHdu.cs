@@ -69,6 +69,151 @@ public sealed class ImageHdu : Hdu
     /// <param name="cancellationToken">The token that cancels the read.</param>
     public ImageHdu Subimage(long[] origin, long[] shape, CancellationToken cancellationToken)
     {
+        var region = PlanRegion(origin, shape);
+        while (region.NextRun(out long source, out int target))
+        {
+            if (!cancellationToken.CanBeCanceled)
+            {
+                Source.ReadRange(source, region.Output.AsSpan(target, region.RunBytes));
+                continue;
+            }
+            // a run can be the whole region (whole rows): read it in blocks, so that the token is checked during a long read
+            for (int done = 0, part; done < region.RunBytes; done += part)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                part = Math.Min(CancellableReadBlock, region.RunBytes - done);
+                Source.ReadRange(source + done, region.Output.AsSpan(target + done, part));
+            }
+        }
+        return RegionImage(region);
+    }
+
+    /// <summary>Asynchronous version of <see cref="Subimage(long[], long[], CancellationToken)"/>: the runs are read asynchronously.</summary>
+    /// <remarks>
+    /// Short runs close to each other (a narrow cutout has one per row) are read together, with the bytes between them, in one asynchronous
+    /// read of at most a megabyte: one wait per megabyte instead of one per run.
+    /// </remarks>
+    private async Task<ImageHdu> SubimageAsync(long[] origin, long[] shape, CancellationToken cancellationToken)
+    {
+        const int MaxGap = 64 * 1024;
+        var region = PlanRegion(origin, shape);
+        int run = region.RunBytes;
+        var group = new List<(long Source, int Target)>();
+        byte[]? block = null;
+        try
+        {
+            bool more = region.NextRun(out long source, out int target);
+            while (more)
+            {
+                group.Clear();
+                group.Add((source, target));
+                long start = source, end = source + run;
+                while ((more = region.NextRun(out source, out target)) && source >= end && source - end <= MaxGap
+                       && source + run - start <= CancellableReadBlock)
+                {
+                    group.Add((source, target));
+                    end = source + run;
+                }
+
+                if (group.Count == 1)
+                {
+                    // a long run (or a lone one) is read in place, a megabyte at a time
+                    var (first, at) = group[0];
+                    for (int done = 0, part; done < run; done += part)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        part = Math.Min(CancellableReadBlock, run - done);
+                        await Source.ReadRangeAsync(first + done, region.Output.AsMemory(at + done, part), cancellationToken).ConfigureAwait(false);
+                    }
+                    continue;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                block ??= System.Buffers.ArrayPool<byte>.Shared.Rent(CancellableReadBlock);
+                int length = (int)(end - start);
+                await Source.ReadRangeAsync(start, block.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+                foreach (var (from, to) in group) block.AsSpan((int)(from - start), run).CopyTo(region.Output.AsSpan(to, run));
+            }
+        }
+        finally
+        {
+            if (block is not null) System.Buffers.ArrayPool<byte>.Shared.Return(block);
+        }
+        return RegionImage(region);
+    }
+
+    /// <summary>
+    /// The runs of a region: the bytes of the region that are contiguous in the data, each with its place in the output. Axes 0..k-1 are
+    /// taken whole, so axis k is the first one that cuts the data.
+    /// </summary>
+    private sealed class RegionPlan(long[] origin, long[] shape, long[] axes, int elementSize, byte[] output, long total)
+    {
+        private readonly int _n = axes.Length;
+        private readonly long[] _idx = new long[axes.Length];
+        private readonly long[] _strides = Strides(axes);
+        private readonly int _k = FirstCutAxis(origin, shape, axes);
+        private long _outOffset;
+        private bool _done = total == 0;
+
+        /// <summary>The bytes of each run.</summary>
+        public int RunBytes { get; } = total == 0 ? 0 : RunLength(origin, shape, axes, elementSize);
+
+        private static int RunLength(long[] origin, long[] shape, long[] axes, int elementSize)
+        {
+            int k = FirstCutAxis(origin, shape, axes);
+            return checked((int)(Strides(axes)[k] * shape[k] * elementSize));
+        }
+
+        public long[] Origin => origin;
+
+        public long[] Shape => shape;
+
+        public byte[] Output => output;
+
+        private static long[] Strides(long[] axes)
+        {
+            var strides = new long[axes.Length];
+            long lower = 1;
+            for (int d = 0; d < axes.Length; d++)
+            {
+                strides[d] = lower;
+                lower *= axes[d];
+            }
+            return strides;
+        }
+
+        private static int FirstCutAxis(long[] origin, long[] shape, long[] axes)
+        {
+            int k = 0;
+            while (k < axes.Length - 1 && origin[k] == 0 && shape[k] == axes[k]) k++;
+            return k;
+        }
+
+        /// <summary>The next run: its first byte in the data and in <see cref="Output"/>; false after the last one.</summary>
+        public bool NextRun(out long source, out int target)
+        {
+            source = 0;
+            target = 0;
+            if (_done) return false;
+            long element = origin[_k] * _strides[_k];
+            for (int d = _k + 1; d < _n; d++) element += (origin[d] + _idx[d]) * _strides[d];
+            source = element * elementSize;
+            target = (int)_outOffset;
+            _outOffset += RunBytes;
+
+            int axis = _k + 1;
+            for (; axis < _n; axis++)
+            {
+                if (++_idx[axis] < shape[axis]) break;
+                _idx[axis] = 0;
+            }
+            _done = axis >= _n;
+            return true;
+        }
+    }
+
+    /// <summary>Checks a region and allocates its pixels.</summary>
+    private RegionPlan PlanRegion(long[] origin, long[] shape)
+    {
         ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(shape);
         var layout = Layout;
@@ -97,53 +242,15 @@ public sealed class ImageHdu : Hdu
         if (byteCount > Array.MaxLength) throw new ArgumentException("The region is larger than 2 GB; read it in several parts.", nameof(shape));
         var output = new byte[byteCount];
 
-        if (total > 0)
-        {
-            // Axes 0..k-1 are taken whole, so axis k is the first one that cuts the data: one run is contiguous in the file.
-            int k = 0;
-            while (k < n - 1 && origin[k] == 0 && shape[k] == axes[k]) k++;
-            long lower = 1;
-            var strides = new long[n];
-            for (int d = 0; d < n; d++)
-            {
-                strides[d] = lower;
-                lower *= axes[d];
-            }
-            long runElements = strides[k] * shape[k];
-            int runBytes = checked((int)(runElements * elementSize));
+        return new RegionPlan(origin, shape, axes, elementSize, output, total);
+    }
 
-            var idx = new long[n];
-            long outOffset = 0;
-            while (true)
-            {
-                long source = origin[k] * strides[k];
-                for (int d = k + 1; d < n; d++) source += (origin[d] + idx[d]) * strides[d];
-                if (!cancellationToken.CanBeCanceled)
-                {
-                    Source.ReadRange(source * elementSize, output.AsSpan((int)outOffset, runBytes));
-                }
-                else
-                {
-                    // a run can be the whole region (whole rows): read it in blocks, so that the token is checked during a long read
-                    for (int done = 0, part; done < runBytes; done += part)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        part = Math.Min(CancellableReadBlock, runBytes - done);
-                        Source.ReadRange(source * elementSize + done, output.AsSpan((int)outOffset + done, part));
-                    }
-                }
-                outOffset += runBytes;
-
-                int axis = k + 1;
-                for (; axis < n; axis++)
-                {
-                    if (++idx[axis] < shape[axis]) break;
-                    idx[axis] = 0;
-                }
-                if (axis >= n) break;
-            }
-        }
-
+    /// <summary>The image of a region whose pixels have been read: the header is adapted to the region.</summary>
+    private ImageHdu RegionImage(RegionPlan region)
+    {
+        long[] origin = region.Origin, shape = region.Shape;
+        var layout = Layout;
+        int n = shape.Length;
         var header = new FitsHeader();
         header.ReplaceAll(Header.Where(c => c.Kind != FitsCardKind.Value || c.Keyword is not ("CHECKSUM" or "DATASUM")).ToList());
         RebuildMandatory(header, true, null, layout.BitPix, shape, 0, 1, false, false);
@@ -157,7 +264,7 @@ public sealed class ImageHdu : Hdu
         // IRAF logical-to-physical offsets move with the region; other pixel-position keywords (DATASEC, TRIMSEC, BIASSEC, ...) are kept as they are.
         for (int d = 0; d < n; d++)
             if (header.TryGetValue("LTV" + (d + 1), out double ltv)) header.Set("LTV" + (d + 1), ltv - origin[d]);
-        return new ImageHdu(header, new MemoryDataSource(output));
+        return new ImageHdu(header, new MemoryDataSource(region.Output));
     }
 
     /// <summary>Reads physical pixel values of a region (see <see cref="Subimage(long[], long[])"/> and <see cref="ReadPixels{T}()"/>).</summary>
@@ -178,6 +285,18 @@ public sealed class ImageHdu : Hdu
     public T[] ReadRegion<T>(long[] origin, long[] shape, CancellationToken cancellationToken) where T : unmanaged =>
         Subimage(origin, shape, cancellationToken).ReadPixels<T>(cancellationToken);
 
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadRegion{T}(long[], long[])"/>: the bytes of the region are read from a lazily opened file
+    /// with asynchronous I/O, then converted. <paramref name="cancellationToken"/> is checked as <see cref="ReadRegion{T}(long[], long[], CancellationToken)"/> does.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the physical values are returned as.</typeparam>
+    /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
+    /// <param name="shape">The length of the region on each axis.</param>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadRegionAsync<T>(long[] origin, long[] shape, CancellationToken cancellationToken = default) where T : unmanaged =>
+        (await SubimageAsync(origin, shape, cancellationToken).ConfigureAwait(false)).ReadPixels<T>(cancellationToken);
+
     /// <summary>Reads stored pixel values of a region (see <see cref="Subimage(long[], long[])"/> and <see cref="ReadRawPixels{T}()"/>).</summary>
     /// <typeparam name="T">The type the stored values are returned as.</typeparam>
     /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
@@ -195,6 +314,18 @@ public sealed class ImageHdu : Hdu
     /// <param name="cancellationToken">The token that cancels the read.</param>
     public T[] ReadRawRegion<T>(long[] origin, long[] shape, CancellationToken cancellationToken) where T : unmanaged =>
         Subimage(origin, shape, cancellationToken).ReadRawPixels<T>(cancellationToken);
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadRawRegion{T}(long[], long[])"/>: the bytes of the region are read from a lazily opened file
+    /// with asynchronous I/O. <paramref name="cancellationToken"/> is checked as <see cref="ReadRawRegion{T}(long[], long[], CancellationToken)"/> does.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
+    /// <param name="shape">The length of the region on each axis.</param>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadRawRegionAsync<T>(long[] origin, long[] shape, CancellationToken cancellationToken = default) where T : unmanaged =>
+        (await SubimageAsync(origin, shape, cancellationToken).ConfigureAwait(false)).ReadRawPixels<T>(cancellationToken);
 
     // ---- Writing -------------------------------------------------------------------------------------------------
 
@@ -385,12 +516,28 @@ public sealed class ImageHdu : Hdu
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     /// <typeparam name="T">The type the stored values are returned as.</typeparam>
     /// <param name="cancellationToken">The token that cancels the read.</param>
-    public T[] ReadRawPixels<T>(CancellationToken cancellationToken) where T : unmanaged
+    public T[] ReadRawPixels<T>(CancellationToken cancellationToken) where T : unmanaged => RawPixelsRead<T>().Run(Source, cancellationToken);
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadRawPixels{T}()"/>: the data of a lazily opened file is read with asynchronous I/O, a block at a
+    /// time, and each block is converted between two reads. <paramref name="cancellationToken"/> is checked between blocks. Data already in
+    /// memory has no I/O to wait for: it is converted on the calling thread.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadRawPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await RawPixelsRead<T>().RunAsync(Source, cancellationToken).ConfigureAwait(false);
+    }
+
+    private ChunkedRead<T[]> RawPixelsRead<T>() where T : unmanaged
     {
         var layout = Layout;
         if (typeof(T) != layout.BitPix.NativeType())
             throw new InvalidOperationException($"BITPIX {(int)layout.BitPix} stores {layout.BitPix.NativeType().Name}, not {typeof(T).Name}.");
-        return BigEndian.ReadArray<T>(Source, cancellationToken);
+        return BigEndian.ArrayRead<T>(Source);
     }
 
     /// <summary>
@@ -412,38 +559,69 @@ public sealed class ImageHdu : Hdu
     /// <param name="cancellationToken">The token that cancels the read.</param>
     public T[] ReadPixels<T>(CancellationToken cancellationToken) where T : unmanaged
     {
+        // The scaled conversions are run directly: going through ChunkedRead makes the tier-1 code of the conversion loop 2 to 3 times
+        // slower (measured with ImageIoBenchmarks), although both run the same conversion.
+        var layout = Layout;
+        double bscale = BScale, bzero = BZero;
+        bool raw = typeof(T) == layout.BitPix.NativeType() && bscale == 1 && bzero == 0;
+        if (!raw && (typeof(T) == typeof(double) || typeof(T) == typeof(float)))
+        {
+            long? blank = !layout.BitPix.IsFloatingPoint() && Header.TryGetValue("BLANK", out long b) ? b : null;
+            return typeof(T) == typeof(double)
+                ? (T[])(object)PixelConvert.ToFloatingNow<double>(Source, layout.BitPix, blank, bscale, bzero, cancellationToken)
+                : (T[])(object)PixelConvert.ToFloatingNow<float>(Source, layout.BitPix, blank, bscale, bzero, cancellationToken);
+        }
+        return PixelsRead<T>().Run(Source, cancellationToken);
+    }
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadPixels{T}()"/>: the data of a lazily opened file is read with asynchronous I/O, a block at a
+    /// time, and each block is converted between two reads. <paramref name="cancellationToken"/> is checked between blocks. Data already in
+    /// memory has no I/O to wait for: it is converted on the calling thread.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the physical values are returned as (<c>BSCALE</c> and <c>BZERO</c> applied), for example <c>float</c> or <c>double</c>.</typeparam>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await PixelsRead<T>().RunAsync(Source, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The read of physical values as <typeparamref name="T"/>: where they go and how each chunk of data is converted.</summary>
+    private ChunkedRead<T[]> PixelsRead<T>() where T : unmanaged
+    {
         var layout = Layout;
         double bscale = BScale, bzero = BZero;
         Type type = typeof(T);
 
-        if (type == layout.BitPix.NativeType() && bscale == 1 && bzero == 0) return ReadRawPixels<T>(cancellationToken);
-        if (type == typeof(double)) return (T[])(object)ReadScaled<double>(layout, bscale, bzero, cancellationToken);
-        if (type == typeof(float)) return (T[])(object)ReadScaled<float>(layout, bscale, bzero, cancellationToken);
+        if (type == layout.BitPix.NativeType() && bscale == 1 && bzero == 0) return RawPixelsRead<T>();
+        if (type == typeof(double)) return (ChunkedRead<T[]>)(object)ScaledRead<double>(layout, bscale, bzero);
+        if (type == typeof(float)) return (ChunkedRead<T[]>)(object)ScaledRead<float>(layout, bscale, bzero);
 
         if (bscale == 1)
         {
             if (type == typeof(sbyte) && layout.BitPix == BitPix.Byte && bzero == -128)
             {
                 var r = new sbyte[Source.ElementCount(1)];
-                Source.ReadInChunks(1, (bytes, first) =>
+                return (ChunkedRead<T[]>)(object)new ChunkedRead<sbyte[]>(r, 1, (bytes, first) =>
                 {
                     Span<byte> part = MemoryMarshal.AsBytes(r.AsSpan(first, bytes.Length));
                     bytes.CopyTo(part);
                     BigEndian.Xor(part, (byte)0x80);
-                }, cancellationToken);
-                return (T[])(object)r;
+                });
             }
             if (type == typeof(ushort) && layout.BitPix == BitPix.Int16 && bzero == 32768)
             {
-                return (T[])(object)BigEndian.ReadArrayXor<ushort>(Source, 0x8000, cancellationToken);
+                return (ChunkedRead<T[]>)(object)BigEndian.ArrayXorRead<ushort>(Source, 0x8000);
             }
             if (type == typeof(uint) && layout.BitPix == BitPix.Int32 && bzero == 2147483648.0)
             {
-                return (T[])(object)BigEndian.ReadArrayXor<uint>(Source, 0x80000000u, cancellationToken);
+                return (ChunkedRead<T[]>)(object)BigEndian.ArrayXorRead<uint>(Source, 0x80000000u);
             }
             if (type == typeof(ulong) && layout.BitPix == BitPix.Int64 && bzero == 9223372036854775808.0)
             {
-                return (T[])(object)BigEndian.ReadArrayXor<ulong>(Source, 0x8000000000000000ul, cancellationToken);
+                return (ChunkedRead<T[]>)(object)BigEndian.ArrayXorRead<ulong>(Source, 0x8000000000000000ul);
             }
         }
 
@@ -451,11 +629,47 @@ public sealed class ImageHdu : Hdu
             $"Cannot read BITPIX {(int)layout.BitPix} data with BSCALE={bscale}, BZERO={bzero} as {type.Name}; use double or float.");
     }
 
-    private TOut[] ReadScaled<TOut>(HduLayout layout, double bscale, double bzero, CancellationToken cancellationToken)
+    private ChunkedRead<TOut[]> ScaledRead<TOut>(HduLayout layout, double bscale, double bzero)
         where TOut : unmanaged, IFloatingPointIeee754<TOut>
     {
         long? blank = !layout.BitPix.IsFloatingPoint() && Header.TryGetValue("BLANK", out long b) ? b : null;
-        return PixelConvert.ToFloating<TOut>(Source, layout.BitPix, blank, bscale, bzero, cancellationToken);
+        return PixelConvert.ToFloating<TOut>(Source, layout.BitPix, blank, bscale, bzero);
+    }
+}
+
+/// <summary>
+/// A read of the whole data of an HDU a chunk at a time: the array that receives the values, and what converts each chunk into it. The same
+/// read runs synchronously (<see cref="Run"/>) or with asynchronous I/O (<see cref="RunAsync"/>, the conversion running between two reads),
+/// so both give the same values. <paramref name="release"/> gives back the buffers the conversion borrowed; a read runs once.
+/// </summary>
+internal sealed class ChunkedRead<TResult>(TResult result, int elementSize, DataSource.ChunkReader reader, Action? release = null)
+{
+    private Action? _release = release;
+
+    public TResult Run(DataSource source, CancellationToken cancellationToken)
+    {
+        try
+        {
+            source.ReadInChunks(elementSize, reader, cancellationToken);
+            return result;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _release, null)?.Invoke();   // once, even if the read is run again
+        }
+    }
+
+    public async Task<TResult> RunAsync(DataSource source, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await source.ReadInChunksAsync(elementSize, reader, cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _release, null)?.Invoke();   // once, even if the read is run again
+        }
     }
 }
 
@@ -469,24 +683,25 @@ internal static class PixelConvert
     /// <c>double</c>, converted a chunk at a time without any intermediate array. The arithmetic is done in double precision
     /// whatever the result type, so that a float result is the rounding of the double one.
     /// </summary>
-    public static TOut[] ToFloating<TOut>(DataSource source, BitPix bitPix, long? blank, double bscale, double bzero,
-        CancellationToken cancellationToken = default)
+    /// <summary>The synchronous read of <see cref="ToFloating{TOut}"/>, with the conversion inline as in 0.1.0 (see ImageHdu.ReadPixels).</summary>
+    public static TOut[] ToFloatingNow<TOut>(DataSource source, BitPix bitPix, long? blank, double bscale, double bzero,
+        CancellationToken cancellationToken)
         where TOut : unmanaged, IFloatingPointIeee754<TOut>
     {
         var result = GC.AllocateUninitializedArray<TOut>(source.ElementCount(bitPix.BytesPerElement()));
         switch (bitPix)
         {
-            case BitPix.Byte: Convert<byte, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
-            case BitPix.Int16: Convert<short, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
-            case BitPix.Int32: Convert<int, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
-            case BitPix.Int64: Convert<long, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
-            case BitPix.Single: Convert<float, TOut>(source, result, null, bscale, bzero, cancellationToken); break;
-            default: Convert<double, TOut>(source, result, null, bscale, bzero, cancellationToken); break;
+            case BitPix.Byte: ConvertNow<byte, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Int16: ConvertNow<short, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Int32: ConvertNow<int, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Int64: ConvertNow<long, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Single: ConvertNow<float, TOut>(source, result, null, bscale, bzero, cancellationToken); break;
+            default: ConvertNow<double, TOut>(source, result, null, bscale, bzero, cancellationToken); break;
         }
         return result;
     }
 
-    private static void Convert<TIn, TOut>(DataSource source, TOut[] result, long? blank, double bscale, double bzero, CancellationToken cancellationToken)
+    private static void ConvertNow<TIn, TOut>(DataSource source, TOut[] result, long? blank, double bscale, double bzero, CancellationToken cancellationToken)
         where TIn : unmanaged, INumberBase<TIn>
         where TOut : unmanaged, IFloatingPointIeee754<TOut>
     {
@@ -512,6 +727,53 @@ internal static class PixelConvert
         finally
         {
             ArrayPool<TIn>.Shared.Return(buffer);
+        }
+    }
+
+    /// <remarks>Returns the read to run: synchronously (<see cref="ChunkedRead{TResult}.Run"/>) or asynchronously.</remarks>
+    public static ChunkedRead<TOut[]> ToFloating<TOut>(DataSource source, BitPix bitPix, long? blank, double bscale, double bzero)
+        where TOut : unmanaged, IFloatingPointIeee754<TOut>
+    {
+        var result = GC.AllocateUninitializedArray<TOut>(source.ElementCount(bitPix.BytesPerElement()));
+        return bitPix switch
+        {
+            BitPix.Byte => Convert<byte, TOut>(result, blank, bscale, bzero),
+            BitPix.Int16 => Convert<short, TOut>(result, blank, bscale, bzero),
+            BitPix.Int32 => Convert<int, TOut>(result, blank, bscale, bzero),
+            BitPix.Int64 => Convert<long, TOut>(result, blank, bscale, bzero),
+            BitPix.Single => Convert<float, TOut>(result, null, bscale, bzero),
+            _ => Convert<double, TOut>(result, null, bscale, bzero),
+        };
+    }
+
+    private static ChunkedRead<TOut[]> Convert<TIn, TOut>(TOut[] result, long? blank, double bscale, double bzero)
+        where TIn : unmanaged, INumberBase<TIn>
+        where TOut : unmanaged, IFloatingPointIeee754<TOut>
+    {
+        int size = Unsafe.SizeOf<TIn>();
+        bool scaled = bscale != 1 || bzero != 0;
+        TIn[] buffer = ArrayPool<TIn>.Shared.Rent(Math.Min(result.Length, ConversionChunk));
+        return new ChunkedRead<TOut[]>(result, size,
+            (bytes, first) => ConvertChunk(bytes, result.AsSpan(first, bytes.Length / size), buffer, blank, scaled, bscale, bzero),
+            () => ArrayPool<TIn>.Shared.Return(buffer));
+    }
+
+    /// <summary>Converts one chunk of big-endian values, <see cref="ConversionChunk"/> values at a time through <paramref name="buffer"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ConvertChunk<TIn, TOut>(ReadOnlySpan<byte> bytes, Span<TOut> result, TIn[] buffer, long? blank, bool scaled, double bscale, double bzero)
+        where TIn : unmanaged, INumberBase<TIn>
+        where TOut : unmanaged, IFloatingPointIeee754<TOut>
+    {
+        int size = Unsafe.SizeOf<TIn>();
+        for (int done = 0; done < result.Length; done += ConversionChunk)
+        {
+            int n = Math.Min(ConversionChunk, result.Length - done);
+            Span<TIn> values = buffer.AsSpan(0, n);
+            BigEndian.Read(bytes.Slice(done * size, n * size), values);
+            Span<TOut> output = result.Slice(done, n);
+            if (blank is { } b) ConvertBlank<TIn, TOut>(values, output, b, scaled, bscale, bzero);
+            else if (scaled) for (int i = 0; i < n; i++) output[i] = TOut.CreateTruncating(bzero + bscale * double.CreateTruncating(values[i]));
+            else for (int i = 0; i < n; i++) output[i] = TOut.CreateTruncating(double.CreateTruncating(values[i]));
         }
     }
 

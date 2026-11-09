@@ -31,8 +31,8 @@ public class CreateNewSaveTests
 
         Assert.Equal(Path.GetFullPath(path), e.FileName);
         Assert.IsAssignableFrom<IOException>(e);
-        Assert.Equal(unchecked((int)0x80070050), e.HResult);
         Assert.Contains(e.FileName, e.Message);
+        Assert.Equal(new IOException().HResult, e.HResult);   // no error code of one platform
         Assert.Equal("not mine", File.ReadAllText(path));
         Assert.Equal(["taken.fits"], dir.Names());
         Assert.Equal(cards, file.Primary.Header.Select(c => c.ToString()));

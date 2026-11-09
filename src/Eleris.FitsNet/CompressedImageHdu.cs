@@ -554,6 +554,38 @@ public sealed class CompressedImageHdu : BinaryTableHdu
     public T[] ReadPixels<T>(CancellationToken cancellationToken) where T : unmanaged =>
         Decompress(-1, cancellationToken).ReadPixels<T>(cancellationToken);
 
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadPixels{T}()"/>: the compressed data of a lazily opened file is read with asynchronous I/O, then
+    /// the tiles are decompressed on all the cores as <see cref="ReadPixels{T}(CancellationToken)"/> does, checking
+    /// <paramref name="cancellationToken"/> between blocks of the read and before each tile.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the physical values are returned as, for example <c>float</c> or <c>double</c>.</typeparam>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged =>
+        (await LoadAsync(cancellationToken).ConfigureAwait(false)).ReadPixels<T>(cancellationToken);
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadRawPixels{T}()"/>: the compressed data of a lazily opened file is read with asynchronous I/O,
+    /// then decompressed as <see cref="ReadRawPixels{T}(CancellationToken)"/> does.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadRawPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged =>
+        (await LoadAsync(cancellationToken).ConfigureAwait(false)).ReadRawPixels<T>(cancellationToken);
+
+    /// <summary>
+    /// This image with its compressed data in memory, read asynchronously from a lazily opened file (the synchronous decompression
+    /// loads it too). Data already in memory is used as it is.
+    /// </summary>
+    private async Task<CompressedImageHdu> LoadAsync(CancellationToken cancellationToken)
+    {
+        if (Source.IsInMemory) return this;
+        byte[] data = await Source.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        return new CompressedImageHdu(Header, new MemoryDataSource(data));
+    }
+
     // ---- Compression ---------------------------------------------------------------------------------------------
 
     /// <summary>Compresses pixels into a tile-compressed image (supported types: those of <see cref="ImageHdu.Create{T}"/>).</summary>
