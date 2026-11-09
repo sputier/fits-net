@@ -1,11 +1,13 @@
 name: Release
 
 # Publishes Eleris.FitsNet to nuget.org when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
-# The tag must match <Version> in src/Eleris.FitsNet/Eleris.FitsNet.csproj.
+# The tag must match <Version> in src/Eleris.FitsNet/Eleris.FitsNet.csproj, and CHANGELOG.md must have a section for it.
+# Run by hand from the Actions tab (workflow_dispatch), it does everything except the publication: a dry run of the pipeline.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,11 +31,13 @@ jobs:
         id: version
         run: |
           version=$(dotnet msbuild src/Eleris.FitsNet -getProperty:Version -p:TargetFramework=net10.0)
-          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "v$version" != "${GITHUB_REF_NAME}" ]; then
             echo "::error::The tag ${GITHUB_REF_NAME} does not match the project version v$version"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The changelog has notes for this version
+        run: python tools/changelog_notes.py ${{ steps.version.outputs.version }}
       - name: Build
         run: dotnet build -c Release
       - name: Test (net8.0 and net10.0, without the astropy comparisons)
@@ -54,12 +58,18 @@ jobs:
 
   publish:
     needs: pack
+    # A manual run stops after the checks of the pack job: nothing is published without a tag.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     # Add required reviewers to this environment in the repository settings to approve each publication by hand.
     environment: nuget
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
           name: nuget-package
@@ -71,8 +81,10 @@ jobs:
         run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-      - name: GitHub release
-        run: gh release create "$GITHUB_REF_NAME" artifacts/* --title "$GITHUB_REF_NAME" --generate-notes ${{ contains(needs.pack.outputs.version, '-') && '--prerelease' || '' }}
+      - name: GitHub release (the notes are the section of CHANGELOG.md)
+        run: |
+          python tools/changelog_notes.py ${{ needs.pack.outputs.version }} > release-notes.md
+          gh release create "$GITHUB_REF_NAME" artifacts/* --title "$GITHUB_REF_NAME" --notes-file release-notes.md ${{ contains(needs.pack.outputs.version, '-') && '--prerelease' || '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

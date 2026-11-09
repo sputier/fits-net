@@ -15,7 +15,8 @@ The package is `Eleris.FitsNet`. Its version is `<Version>` in `src/Eleris.FitsN
 
 ## Releasing a version
 
-1. Change `<Version>` in `src/Eleris.FitsNet/Eleris.FitsNet.csproj`, update the documentation if the API changed
+1. Change `<Version>` in `src/Eleris.FitsNet/Eleris.FitsNet.csproj`, add a section `## <version>` to `CHANGELOG.md` (it becomes the
+   notes of the GitHub release; the workflow stops if it is missing), update the documentation if the API changed
    (`dotnet run --project tools/DocGen`) and commit.
 2. Check the package locally:
 
@@ -33,9 +34,16 @@ The package is `Eleris.FitsNet`. Its version is `<Version>` in `src/Eleris.FitsN
    git push origin v0.1.0
    ```
 
-The `Release` workflow then checks that the tag matches the version, builds, runs the tests, checks that the generated documentation
-is up to date, packs, runs `tools/verify_package.py`, waits for the approval of the `nuget` environment if there is one, pushes the
-`.nupkg` and its symbols (`.snupkg`) to nuget.org and creates the GitHub release.
+The `Release` workflow then checks that the tag matches the version and that the changelog has notes for it, builds, runs the tests,
+checks that the generated documentation is up to date, packs, runs `tools/verify_package.py`, waits for the approval of the `nuget`
+environment if there is one, pushes the `.nupkg` and its symbols (`.snupkg`) to nuget.org and creates the GitHub release with the
+notes of the changelog.
+
+### Dry run
+
+*Actions > Release > Run workflow* runs the same workflow from a branch without a tag: every check and the packing are done, the
+package is kept as an artifact of the run, and nothing is published (the `publish` job only runs for a tag). Do it before the first
+tag, and after any change to the workflow.
 
 A published version cannot be replaced. It can only be *unlisted* on nuget.org, so a mistake costs a new version number.
 

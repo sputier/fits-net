@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  # The library has no dependency: these are the packages of the tests, the benchmarks, the examples and the tools.
+  - package-ecosystem: nuget
+    directories:
+      - /tests/Eleris.FitsNet.Tests
+      - /benchmarks/*
+      - /docs/examples/*
+      - /tools/*
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: /docs
+    schedule:
+      interval: weekly
