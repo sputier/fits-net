@@ -54,7 +54,20 @@ public sealed class ImageHdu : Hdu
     /// </summary>
     /// <param name="origin">Zero-based first pixel along each axis.</param>
     /// <param name="shape">Number of pixels along each axis.</param>
-    public ImageHdu Subimage(long[] origin, long[] shape)
+    public ImageHdu Subimage(long[] origin, long[] shape) => Subimage(origin, shape, CancellationToken.None);
+
+    // The most bytes read at once by a region read that can be cancelled.
+    private const int CancellableReadBlock = 1 << 20;
+
+    /// <summary>
+    /// Extracts a rectangular part of the image as a new image, as <see cref="Subimage(long[], long[])"/> does, checking
+    /// <paramref name="cancellationToken"/> between the runs of pixels read, and every megabyte within a long run.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <param name="origin">Zero-based first pixel along each axis.</param>
+    /// <param name="shape">Number of pixels along each axis.</param>
+    /// <param name="cancellationToken">The token that cancels the read.</param>
+    public ImageHdu Subimage(long[] origin, long[] shape, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(shape);
@@ -105,7 +118,20 @@ public sealed class ImageHdu : Hdu
             {
                 long source = origin[k] * strides[k];
                 for (int d = k + 1; d < n; d++) source += (origin[d] + idx[d]) * strides[d];
-                Source.ReadRange(source * elementSize, output.AsSpan((int)outOffset, runBytes));
+                if (!cancellationToken.CanBeCanceled)
+                {
+                    Source.ReadRange(source * elementSize, output.AsSpan((int)outOffset, runBytes));
+                }
+                else
+                {
+                    // a run can be the whole region (whole rows): read it in blocks, so that the token is checked during a long read
+                    for (int done = 0, part; done < runBytes; done += part)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        part = Math.Min(CancellableReadBlock, runBytes - done);
+                        Source.ReadRange(source * elementSize + done, output.AsSpan((int)outOffset + done, part));
+                    }
+                }
                 outOffset += runBytes;
 
                 int axis = k + 1;
@@ -134,17 +160,41 @@ public sealed class ImageHdu : Hdu
         return new ImageHdu(header, new MemoryDataSource(output));
     }
 
-    /// <summary>Reads physical pixel values of a region (see <see cref="Subimage"/> and <see cref="ReadPixels{T}"/>).</summary>
+    /// <summary>Reads physical pixel values of a region (see <see cref="Subimage(long[], long[])"/> and <see cref="ReadPixels{T}()"/>).</summary>
     /// <typeparam name="T">The type the physical values are returned as.</typeparam>
     /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
     /// <param name="shape">The length of the region on each axis.</param>
     public T[] ReadRegion<T>(long[] origin, long[] shape) where T : unmanaged => Subimage(origin, shape).ReadPixels<T>();
 
-    /// <summary>Reads stored pixel values of a region (see <see cref="Subimage"/> and <see cref="ReadRawPixels{T}"/>).</summary>
+    /// <summary>
+    /// Reads physical pixel values of a region, as <see cref="ReadRegion{T}(long[], long[])"/> does, checking
+    /// <paramref name="cancellationToken"/> between the runs of pixels read and the blocks of values converted.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the physical values are returned as.</typeparam>
+    /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
+    /// <param name="shape">The length of the region on each axis.</param>
+    /// <param name="cancellationToken">The token that cancels the read.</param>
+    public T[] ReadRegion<T>(long[] origin, long[] shape, CancellationToken cancellationToken) where T : unmanaged =>
+        Subimage(origin, shape, cancellationToken).ReadPixels<T>(cancellationToken);
+
+    /// <summary>Reads stored pixel values of a region (see <see cref="Subimage(long[], long[])"/> and <see cref="ReadRawPixels{T}()"/>).</summary>
     /// <typeparam name="T">The type the stored values are returned as.</typeparam>
     /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
     /// <param name="shape">The length of the region on each axis.</param>
     public T[] ReadRawRegion<T>(long[] origin, long[] shape) where T : unmanaged => Subimage(origin, shape).ReadRawPixels<T>();
+
+    /// <summary>
+    /// Reads stored pixel values of a region, as <see cref="ReadRawRegion{T}(long[], long[])"/> does, checking
+    /// <paramref name="cancellationToken"/> between the runs of pixels read and the blocks of values converted.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="origin">The zero-based position of the first pixel of the region on each axis.</param>
+    /// <param name="shape">The length of the region on each axis.</param>
+    /// <param name="cancellationToken">The token that cancels the read.</param>
+    public T[] ReadRawRegion<T>(long[] origin, long[] shape, CancellationToken cancellationToken) where T : unmanaged =>
+        Subimage(origin, shape, cancellationToken).ReadRawPixels<T>(cancellationToken);
 
     // ---- Writing -------------------------------------------------------------------------------------------------
 
@@ -156,6 +206,62 @@ public sealed class ImageHdu : Hdu
     {
         var hdu = new ImageHdu();
         hdu.SetPixels(pixels, axes);
+        return hdu;
+    }
+
+    /// <summary>
+    /// Creates an image from planes, without copying them: a plane is all the pixels that share one index on the last axis (the planes of a
+    /// cube, the rows of a 2D image). The planes are read again each time the data is needed: when the file is saved, the
+    /// checksums are computed or the pixels are read, and the image keeps them after a save. So they must stay valid and unchanged as long
+    /// as the image uses them (until it is discarded, or <see cref="SetPixels{T}"/> has replaced its data): a pooled or native buffer must
+    /// not be returned before, and a plane changed between the checksum and the write of a save would give a wrong <c>DATASUM</c>.
+    /// The bytes written are those of <see cref="Create{T}"/> for the same pixels.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// float[] red = ..., green = ..., blue = ...;          // width * height pixels each
+    /// var image = ImageHdu.CreateFromPlanes&lt;float&gt;([red, green, blue], width, height, 3);
+    /// </code>
+    /// </example>
+    /// <exception cref="ArgumentNullException"><paramref name="planes"/> or <paramref name="axes"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">There is no axis, too many axes, a negative axis, a number of planes that is not the last axis, or a plane whose length is not the product of the other axes.</exception>
+    /// <exception cref="NotSupportedException"><typeparamref name="T"/> is not a supported pixel type.</exception>
+    /// <typeparam name="T">The pixel type (see <see cref="Create{T}"/>).</typeparam>
+    /// <param name="planes">The planes in file order, each with the first axis varying fastest. The list is copied, not the pixels.</param>
+    /// <param name="axes">NAXIS1..NAXISn; NAXISn is the number of planes.</param>
+    public static ImageHdu CreateFromPlanes<T>(IReadOnlyList<ReadOnlyMemory<T>> planes, params long[] axes) where T : unmanaged
+    {
+        ArgumentNullException.ThrowIfNull(planes);
+        ArgumentNullException.ThrowIfNull(axes);
+        if (axes.Length == 0) throw new ArgumentException("An image made of planes needs at least one axis.", nameof(axes));
+        if (axes.Length > HduLayout.MaxAxes) throw new ArgumentException("Too many axes.", nameof(axes));
+        if (axes.Any(a => a < 0)) throw new ArgumentException("Axis lengths must not be negative.", nameof(axes));
+        if (planes.Count != axes[^1])
+            throw new ArgumentException($"The last axis has {axes[^1]} planes but {planes.Count} were given.", nameof(planes));
+        // The pixels of one plane, capped just above what a plane (one ReadOnlyMemory) can hold: no overflow, and no plane can match it.
+        const long tooLarge = int.MaxValue + 1L;
+        long planeLength = 1;
+        foreach (long a in axes.AsSpan(0, axes.Length - 1)) planeLength = Math.Min(planeLength * Math.Min(a, tooLarge), tooLarge);
+        if (planeLength > int.MaxValue) throw new ArgumentException("A plane would hold more pixels than a ReadOnlyMemory can.", nameof(axes));
+        var (bitPix, bzero, flip) = Describe<T>();
+        var copy = new ReadOnlyMemory<T>[planes.Count];
+        for (int i = 0; i < copy.Length; i++)
+        {
+            copy[i] = planes[i];
+            if (copy[i].Length != planeLength)
+                throw new ArgumentException($"Plane {i} has {copy[i].Length} pixels but the other axes need {planeLength}.", nameof(planes));
+        }
+        PlaneDataSource<T> source;
+        try
+        {
+            source = new PlaneDataSource<T>(copy, (int)planeLength, flip);
+        }
+        catch (OverflowException)
+        {
+            throw new ArgumentException("The image is too large.", nameof(axes));
+        }
+        var hdu = new ImageHdu();
+        hdu.SetData(source, bitPix, bzero, axes);
         return hdu;
     }
 
@@ -190,14 +296,37 @@ public sealed class ImageHdu : Hdu
             throw new ArgumentException($"Expected {count} pixels for the given axes but got {pixels.Length}.", nameof(pixels));
 
         byte[] raw = Encode(pixels, out BitPix bitPix, out object? bzero);
+        SetData(new MemoryDataSource(raw), bitPix, bzero, axes);
+    }
 
+    private void SetData(DataSource source, BitPix bitPix, object? bzero, long[] axes)
+    {
         bool primary = IsPrimaryForm;
         Header.Remove("BSCALE");
         Header.Remove("BZERO");
         Header.Remove("BLANK");
         RebuildMandatory(Header, primary, ExtensionName, bitPix, axes, 0, 1, false, false);
         if (bzero is not null) Header.Set("BZERO", bzero, "offset data range to that of unsigned integer");
-        Source = new MemoryDataSource(raw);
+        Source = source;
+    }
+
+    /// <summary>
+    /// How pixels of type <typeparamref name="T"/> are stored: the BITPIX, the BZERO of the unsigned conventions, and whether the top bit of
+    /// each value is flipped to store it (the same as subtracting that BZERO). Must agree with <see cref="Encode{T}"/>.
+    /// </summary>
+    private static (BitPix BitPix, object? BZero, bool FlipTopBit) Describe<T>() where T : unmanaged
+    {
+        if (typeof(T) == typeof(byte)) return (BitPix.Byte, null, false);
+        if (typeof(T) == typeof(sbyte)) return (BitPix.Byte, -128L, true);
+        if (typeof(T) == typeof(short)) return (BitPix.Int16, null, false);
+        if (typeof(T) == typeof(ushort)) return (BitPix.Int16, 32768L, true);
+        if (typeof(T) == typeof(int)) return (BitPix.Int32, null, false);
+        if (typeof(T) == typeof(uint)) return (BitPix.Int32, 2147483648L, true);
+        if (typeof(T) == typeof(long)) return (BitPix.Int64, null, false);
+        if (typeof(T) == typeof(ulong)) return (BitPix.Int64, new BigInteger(1UL << 63), true);
+        if (typeof(T) == typeof(float)) return (BitPix.Single, null, false);
+        if (typeof(T) == typeof(double)) return (BitPix.Double, null, false);
+        throw new NotSupportedException($"Pixel type {typeof(T).Name} is not supported.");
     }
 
     internal static byte[] Encode<T>(ReadOnlySpan<T> p, out BitPix bitPix, out object? bzero) where T : unmanaged
@@ -247,12 +376,21 @@ public sealed class ImageHdu : Hdu
     /// (otherwise <see cref="InvalidOperationException"/>).
     /// </summary>
     /// <typeparam name="T">The type the stored values are returned as.</typeparam>
-    public T[] ReadRawPixels<T>() where T : unmanaged
+    public T[] ReadRawPixels<T>() where T : unmanaged => ReadRawPixels<T>(CancellationToken.None);
+
+    /// <summary>
+    /// Reads the stored values, as <see cref="ReadRawPixels{T}()"/> does, checking <paramref name="cancellationToken"/> between blocks
+    /// of data.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="cancellationToken">The token that cancels the read.</param>
+    public T[] ReadRawPixels<T>(CancellationToken cancellationToken) where T : unmanaged
     {
         var layout = Layout;
         if (typeof(T) != layout.BitPix.NativeType())
             throw new InvalidOperationException($"BITPIX {(int)layout.BitPix} stores {layout.BitPix.NativeType().Name}, not {typeof(T).Name}.");
-        return BigEndian.ReadArray<T>(Source);
+        return BigEndian.ReadArray<T>(Source, cancellationToken);
     }
 
     /// <summary>
@@ -263,15 +401,24 @@ public sealed class ImageHdu : Hdu
     /// Reading 64-bit integers as <c>double</c> loses precision above 2^53.
     /// </summary>
     /// <typeparam name="T">The type the physical values are returned as (<c>BSCALE</c> and <c>BZERO</c> applied), for example <c>float</c> or <c>double</c>.</typeparam>
-    public T[] ReadPixels<T>() where T : unmanaged
+    public T[] ReadPixels<T>() where T : unmanaged => ReadPixels<T>(CancellationToken.None);
+
+    /// <summary>
+    /// Reads physical pixel values, as <see cref="ReadPixels{T}()"/> does, checking <paramref name="cancellationToken"/> between blocks
+    /// of data.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the physical values are returned as (<c>BSCALE</c> and <c>BZERO</c> applied), for example <c>float</c> or <c>double</c>.</typeparam>
+    /// <param name="cancellationToken">The token that cancels the read.</param>
+    public T[] ReadPixels<T>(CancellationToken cancellationToken) where T : unmanaged
     {
         var layout = Layout;
         double bscale = BScale, bzero = BZero;
         Type type = typeof(T);
 
-        if (type == layout.BitPix.NativeType() && bscale == 1 && bzero == 0) return ReadRawPixels<T>();
-        if (type == typeof(double)) return (T[])(object)ReadScaled<double>(layout, bscale, bzero);
-        if (type == typeof(float)) return (T[])(object)ReadScaled<float>(layout, bscale, bzero);
+        if (type == layout.BitPix.NativeType() && bscale == 1 && bzero == 0) return ReadRawPixels<T>(cancellationToken);
+        if (type == typeof(double)) return (T[])(object)ReadScaled<double>(layout, bscale, bzero, cancellationToken);
+        if (type == typeof(float)) return (T[])(object)ReadScaled<float>(layout, bscale, bzero, cancellationToken);
 
         if (bscale == 1)
         {
@@ -283,20 +430,20 @@ public sealed class ImageHdu : Hdu
                     Span<byte> part = MemoryMarshal.AsBytes(r.AsSpan(first, bytes.Length));
                     bytes.CopyTo(part);
                     BigEndian.Xor(part, (byte)0x80);
-                });
+                }, cancellationToken);
                 return (T[])(object)r;
             }
             if (type == typeof(ushort) && layout.BitPix == BitPix.Int16 && bzero == 32768)
             {
-                return (T[])(object)BigEndian.ReadArrayXor<ushort>(Source, 0x8000);
+                return (T[])(object)BigEndian.ReadArrayXor<ushort>(Source, 0x8000, cancellationToken);
             }
             if (type == typeof(uint) && layout.BitPix == BitPix.Int32 && bzero == 2147483648.0)
             {
-                return (T[])(object)BigEndian.ReadArrayXor<uint>(Source, 0x80000000u);
+                return (T[])(object)BigEndian.ReadArrayXor<uint>(Source, 0x80000000u, cancellationToken);
             }
             if (type == typeof(ulong) && layout.BitPix == BitPix.Int64 && bzero == 9223372036854775808.0)
             {
-                return (T[])(object)BigEndian.ReadArrayXor<ulong>(Source, 0x8000000000000000ul);
+                return (T[])(object)BigEndian.ReadArrayXor<ulong>(Source, 0x8000000000000000ul, cancellationToken);
             }
         }
 
@@ -304,10 +451,11 @@ public sealed class ImageHdu : Hdu
             $"Cannot read BITPIX {(int)layout.BitPix} data with BSCALE={bscale}, BZERO={bzero} as {type.Name}; use double or float.");
     }
 
-    private TOut[] ReadScaled<TOut>(HduLayout layout, double bscale, double bzero) where TOut : unmanaged, IFloatingPointIeee754<TOut>
+    private TOut[] ReadScaled<TOut>(HduLayout layout, double bscale, double bzero, CancellationToken cancellationToken)
+        where TOut : unmanaged, IFloatingPointIeee754<TOut>
     {
         long? blank = !layout.BitPix.IsFloatingPoint() && Header.TryGetValue("BLANK", out long b) ? b : null;
-        return PixelConvert.ToFloating<TOut>(Source, layout.BitPix, blank, bscale, bzero);
+        return PixelConvert.ToFloating<TOut>(Source, layout.BitPix, blank, bscale, bzero, cancellationToken);
     }
 }
 
@@ -321,23 +469,24 @@ internal static class PixelConvert
     /// <c>double</c>, converted a chunk at a time without any intermediate array. The arithmetic is done in double precision
     /// whatever the result type, so that a float result is the rounding of the double one.
     /// </summary>
-    public static TOut[] ToFloating<TOut>(DataSource source, BitPix bitPix, long? blank, double bscale, double bzero)
+    public static TOut[] ToFloating<TOut>(DataSource source, BitPix bitPix, long? blank, double bscale, double bzero,
+        CancellationToken cancellationToken = default)
         where TOut : unmanaged, IFloatingPointIeee754<TOut>
     {
         var result = GC.AllocateUninitializedArray<TOut>(source.ElementCount(bitPix.BytesPerElement()));
         switch (bitPix)
         {
-            case BitPix.Byte: Convert<byte, TOut>(source, result, blank, bscale, bzero); break;
-            case BitPix.Int16: Convert<short, TOut>(source, result, blank, bscale, bzero); break;
-            case BitPix.Int32: Convert<int, TOut>(source, result, blank, bscale, bzero); break;
-            case BitPix.Int64: Convert<long, TOut>(source, result, blank, bscale, bzero); break;
-            case BitPix.Single: Convert<float, TOut>(source, result, null, bscale, bzero); break;
-            default: Convert<double, TOut>(source, result, null, bscale, bzero); break;
+            case BitPix.Byte: Convert<byte, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Int16: Convert<short, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Int32: Convert<int, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Int64: Convert<long, TOut>(source, result, blank, bscale, bzero, cancellationToken); break;
+            case BitPix.Single: Convert<float, TOut>(source, result, null, bscale, bzero, cancellationToken); break;
+            default: Convert<double, TOut>(source, result, null, bscale, bzero, cancellationToken); break;
         }
         return result;
     }
 
-    private static void Convert<TIn, TOut>(DataSource source, TOut[] result, long? blank, double bscale, double bzero)
+    private static void Convert<TIn, TOut>(DataSource source, TOut[] result, long? blank, double bscale, double bzero, CancellationToken cancellationToken)
         where TIn : unmanaged, INumberBase<TIn>
         where TOut : unmanaged, IFloatingPointIeee754<TOut>
     {
@@ -358,7 +507,7 @@ internal static class PixelConvert
                     else if (scaled) for (int i = 0; i < n; i++) output[i] = TOut.CreateTruncating(bzero + bscale * double.CreateTruncating(values[i]));
                     else for (int i = 0; i < n; i++) output[i] = TOut.CreateTruncating(double.CreateTruncating(values[i]));
                 }
-            });
+            }, cancellationToken);
         }
         finally
         {

@@ -55,16 +55,16 @@ internal static class BigEndian
     }
 
     /// <summary>Reads all the values of a data source, a chunk at a time so that nothing but the result is allocated.</summary>
-    public static T[] ReadArray<T>(DataSource source) where T : unmanaged
+    public static T[] ReadArray<T>(DataSource source, CancellationToken cancellationToken = default) where T : unmanaged
     {
         int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
         var result = GC.AllocateUninitializedArray<T>(source.ElementCount(size));
-        source.ReadInChunks(size, (bytes, first) => Read(bytes, result.AsSpan(first, bytes.Length / size)));
+        source.ReadInChunks(size, (bytes, first) => Read(bytes, result.AsSpan(first, bytes.Length / size)), cancellationToken);
         return result;
     }
 
     /// <summary>Like <see cref="ReadArray{T}"/>, then flips the bits of <paramref name="mask"/> (the unsigned integer conventions: BZERO = 2^(n-1)).</summary>
-    public static T[] ReadArrayXor<T>(DataSource source, T mask) where T : unmanaged, IBitwiseOperators<T, T, T>
+    public static T[] ReadArrayXor<T>(DataSource source, T mask, CancellationToken cancellationToken = default) where T : unmanaged, IBitwiseOperators<T, T, T>
     {
         int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
         var result = GC.AllocateUninitializedArray<T>(source.ElementCount(size));
@@ -73,7 +73,7 @@ internal static class BigEndian
             Span<T> part = result.AsSpan(first, bytes.Length / size);
             Read(bytes, part);
             Xor(part, mask);
-        });
+        }, cancellationToken);
         return result;
     }
 
@@ -158,7 +158,7 @@ internal static class BigEndian
     }
 
     /// <summary>Flips the first bit of every big-endian element of <paramref name="size"/> bytes.</summary>
-    private static void FlipTopBits(Span<byte> bytes, int size)
+    internal static void FlipTopBits(Span<byte> bytes, int size)
     {
         int i = 0;
         if (Vector.IsHardwareAccelerated && bytes.Length >= Vector<byte>.Count)

@@ -113,6 +113,57 @@ A failed save throws an `IOException` and leaves the headers and the state of th
 
 A file that is read and saved without a change is written back byte for byte, including the cards and comments as they were written.
 
+### Never replace a file
+
+`Save(path, checksums, FitsSaveMode.CreateNew)` refuses to replace anything. When something exists at the path, the save throws a [`FitsFileExistsException`](api/Eleris.FitsNet.FitsFileExistsException.md), an `IOException` that gives the path in `FileName`. The check is not a test made before writing, which another program could beat: the temporary file is moved to the path by an operation that fails if the path exists. A file created by someone else while the save runs is therefore kept, and the save fails. (On Linux and macOS, .NET makes this move with a hard link, so the guarantee holds on the file systems that support them, which are the usual ones.) In every case nothing is replaced, no temporary file is left, and the headers and the HDUs are as they were before the call. `FitsSaveMode.Overwrite` is the behaviour of the other overloads.
+
+<!-- example: Files.CreateNew -->
+```csharp
+using var file = FitsFile.Open("m42.fits");
+file.Primary.Header.Set("OBSERVER", "A. Astronomer");
+
+// CreateNew never replaces a file, even one that another program creates while the file is being written.
+file.Save("m42-reduced.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew);
+try
+{
+    file.Save("m42-reduced.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew);
+}
+catch (FitsFileExistsException e)
+{
+    Console.WriteLine($"Not replaced: {Path.GetFileName(e.FileName)}");   // Not replaced: m42-reduced.fits
+}
+```
+<!-- /example -->
+
+In this mode a symbolic link at the path is an existing file, even when its target does not exist: nothing is written through it.
+
+### Cancellation
+
+The long operations take a `CancellationToken` in an overload of their own: `ReadPixels<T>`, `ReadRawPixels<T>`, `ReadRegion<T>`, `ReadRawRegion<T>` and `Subimage` of an [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md), `Decompress`, `ReadPixels<T>` and `ReadRawPixels<T>` of a [`CompressedImageHdu`](api/Eleris.FitsNet.CompressedImageHdu.md), and `Save`. The token is checked between blocks of data (and between tiles of a compressed image), and a cancelled operation throws an `OperationCanceledException`.
+
+<!-- example: Files.Cancel -->
+```csharp
+// A token stops a long read or save between two blocks of data: give up after 30 seconds, or when the user asks.
+using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+using var file = FitsFile.Open("m42.fits");
+var image = (ImageHdu)file.Primary;
+try
+{
+    float[] pixels = image.ReadPixels<float>(cancel.Token);
+    ushort[] rows = image.ReadRegion<ushort>(origin: [0, 100], shape: [640, 16], cancel.Token);
+    file.Save("m42-saved.fits", ChecksumPolicy.Auto, cancel.Token);
+    Console.WriteLine($"{pixels.Length} pixels read, {rows.Length} in the rows, file saved");
+}
+catch (OperationCanceledException)
+{
+    // A cancelled save leaves no file behind, and an existing target as it was.
+    Console.WriteLine("Cancelled");
+}
+```
+<!-- /example -->
+
+A cancelled save to a path deletes its temporary file: the target, if there was one, is as it was, and the headers and the HDUs are as they were before the call. The token is checked until the temporary file is complete; the move that puts it in place is not interrupted. A cancelled save to a stream also restores the headers, but the stream may already hold the beginning of the file.
+
 ## Checksums when saving
 
 The second argument of `Save` is a [`ChecksumPolicy`](api/Eleris.FitsNet.ChecksumPolicy.md): `Auto` (the default) keeps up to date the checksums that already exist, `Always` writes them in every HDU, `Never` removes them. See [Checksums](checksums.md).

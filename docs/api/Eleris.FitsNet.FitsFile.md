@@ -38,6 +38,9 @@ public sealed class FitsFile : IDisposable, IReadOnlyList<Hdu>
 | [`RemoveAt(int)`](#eleris-fitsnet-fitsfile-removeat-system-int32) | Removes the HDU at an index. |
 | [`Save(Stream, ChecksumPolicy)`](#eleris-fitsnet-fitsfile-save-system-io-stream-eleris-fitsnet-checksumpolicy) | Writes the file to a stream. |
 | [`Save(string, ChecksumPolicy)`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy) | Writes the file to `path`: a temporary file next to the target is written completely, flushed, then moved over it, so a failure leaves the original untouched. |
+| [`Save(Stream, ChecksumPolicy, CancellationToken)`](#eleris-fitsnet-fitsfile-save-system-io-stream-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken) | Writes the file to a stream, checking `cancellationToken` between blocks of data. |
+| [`Save(string, ChecksumPolicy, CancellationToken)`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken) | Writes the file to `path` as [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy) does, checking `cancellationToken` between blocks of data. |
+| [`Save(string, ChecksumPolicy, FitsSaveMode, CancellationToken)`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken) | Writes the file to `path`, choosing with `mode` what happens when a file already exists there. |
 | [`VerifyChecksums()`](#eleris-fitsnet-fitsfile-verifychecksums) | Checks CHECKSUM and DATASUM of every HDU (see [`Hdu.VerifyChecksum`](Eleris.FitsNet.Hdu.md#eleris-fitsnet-hdu-verifychecksum)). |
 
 ## Constructor details
@@ -235,6 +238,68 @@ public void Save(string path, ChecksumPolicy checksums = ChecksumPolicy.Auto)
 **Exceptions**
 
 - [`IOException`](https://learn.microsoft.com/dotnet/api/system.io.ioexception) — The file could not be written or put in place. When the file this instance reads from was being replaced and could not be reopened afterwards (or, in the worst case, after a failed replacement), the instance can no longer read its data: dispose it and open the file again; the message says which case it is.
+
+<a id="eleris-fitsnet-fitsfile-save-system-io-stream-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken"></a>
+### `Save(Stream, ChecksumPolicy, CancellationToken)`
+
+Writes the file to a stream, checking `cancellationToken` between blocks of data. A cancelled save throws an [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) and leaves the headers and the state of the HDUs as they were, but the stream may already hold the beginning of the file: discard it.
+
+```csharp
+public void Save(Stream stream, ChecksumPolicy checksums, CancellationToken cancellationToken)
+```
+
+**Parameters**
+
+- `stream` — The destination.
+- `checksums` — What to do with the CHECKSUM and DATASUM keywords.
+- `cancellationToken` — The token that cancels the save.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled before the file was written completely.
+
+<a id="eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken"></a>
+### `Save(string, ChecksumPolicy, CancellationToken)`
+
+Writes the file to `path` as [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy) does, checking `cancellationToken` between blocks of data. A cancelled save deletes its temporary file and leaves the target, the headers and the state of the HDUs as they were. Once the temporary file is complete and is being put in place, the save is no longer cancelled.
+
+```csharp
+public void Save(string path, ChecksumPolicy checksums, CancellationToken cancellationToken)
+```
+
+**Parameters**
+
+- `path` — The path of the file to write.
+- `checksums` — What to do with the `CHECKSUM` and `DATASUM` keywords.
+- `cancellationToken` — The token that cancels the save.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled before the file was put in place.
+- [`IOException`](https://learn.microsoft.com/dotnet/api/system.io.ioexception) — The file could not be written or put in place (see [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy)).
+
+<a id="eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken"></a>
+### `Save(string, ChecksumPolicy, FitsSaveMode, CancellationToken)`
+
+Writes the file to `path`, choosing with `mode` what happens when a file already exists there. [`FitsSaveMode.Overwrite`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-overwrite) is [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-system-threading-cancellationtoken). [`FitsSaveMode.CreateNew`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-createnew) never replaces anything: the file is written to a temporary file in the same directory, then moved to `path` by an operation that fails if the path exists, so a file that appears while the save runs is not replaced either (no check-then-write race; on Unix, where .NET makes this move with a hard link, on file systems that support hard links). In that mode `path` is taken as it is (a symbolic link there counts as an existing file), and a failure, [`FitsFileExistsException`](Eleris.FitsNet.FitsFileExistsException.md) included, leaves the headers and the state of the HDUs as they were.
+
+```csharp
+public void Save(string path, ChecksumPolicy checksums, FitsSaveMode mode, CancellationToken cancellationToken = default)
+```
+
+**Parameters**
+
+- `path` — The path of the file to write.
+- `checksums` — What to do with the `CHECKSUM` and `DATASUM` keywords.
+- `mode` — Whether an existing file may be replaced.
+- `cancellationToken` — The token that cancels the save.
+
+**Exceptions**
+
+- [`FitsFileExistsException`](Eleris.FitsNet.FitsFileExistsException.md) — `mode` is [`FitsSaveMode.CreateNew`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-createnew) and something exists at `path`, before or after the file was written.
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled before the file was put in place.
+- [`IOException`](https://learn.microsoft.com/dotnet/api/system.io.ioexception) — The file could not be written or put in place (see [`FitsFile.Save`](#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy)).
+- [`ArgumentOutOfRangeException`](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception) — `mode` is not a value of [`FitsSaveMode`](Eleris.FitsNet.FitsSaveMode.md).
 
 <a id="eleris-fitsnet-fitsfile-verifychecksums"></a>
 ### `VerifyChecksums()`

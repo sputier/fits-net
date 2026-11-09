@@ -29,9 +29,12 @@ public sealed class CompressedImageHdu : BinaryTableHdu
 | [`Create(IReadOnlyList<TableColumn>)`](#eleris-fitsnet-compressedimagehdu-create-system-collections-generic-ireadonlylist-eleris-fitsnet-tablecolumn) | Not available: use [`CompressedImageHdu.Create`](#eleris-fitsnet-compressedimagehdu-create-1-system-readonlyspan-0-system-int64-eleris-fitsnet-compression-compressionoptions) or [`CompressedImageHdu.Compress`](#eleris-fitsnet-compressedimagehdu-compress-eleris-fitsnet-imagehdu-eleris-fitsnet-compression-compressionoptions) to build a compressed image. |
 | [`Create<T>(ReadOnlySpan<T>, long[], CompressionOptions)`](#eleris-fitsnet-compressedimagehdu-create-1-system-readonlyspan-0-system-int64-eleris-fitsnet-compression-compressionoptions) | Compresses pixels into a tile-compressed image (supported types: those of [`ImageHdu.Create`](Eleris.FitsNet.ImageHdu.md#eleris-fitsnet-imagehdu-create-1-system-readonlyspan-0-system-int64)). |
 | [`Decompress(int)`](#eleris-fitsnet-compressedimagehdu-decompress-system-int32) | Decompresses every tile into an ordinary image (BSCALE, BZERO, BLANK and other cards are carried over). |
+| [`Decompress(int, CancellationToken)`](#eleris-fitsnet-compressedimagehdu-decompress-system-int32-system-threading-cancellationtoken) | Decompresses every tile into an ordinary image, as [`CompressedImageHdu.Decompress`](#eleris-fitsnet-compressedimagehdu-decompress-system-int32) does, checking `cancellationToken` before each tile. |
 | [`IsCompressedImage(FitsHeader)`](#eleris-fitsnet-compressedimagehdu-iscompressedimage-eleris-fitsnet-fitsheader) | Whether a binary table header describes a tile-compressed image. |
 | [`ReadPixels<T>()`](#eleris-fitsnet-compressedimagehdu-readpixels-1) | Decompresses and reads physical pixel values, like [`ImageHdu.ReadPixels`](Eleris.FitsNet.ImageHdu.md#eleris-fitsnet-imagehdu-readpixels-1). |
+| [`ReadPixels<T>(CancellationToken)`](#eleris-fitsnet-compressedimagehdu-readpixels-1-system-threading-cancellationtoken) | Decompresses and reads physical pixel values, as [`CompressedImageHdu.ReadPixels`](#eleris-fitsnet-compressedimagehdu-readpixels-1) does, checking `cancellationToken` before each tile. |
 | [`ReadRawPixels<T>()`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1) | Decompresses and reads the stored pixel values, like [`ImageHdu.ReadRawPixels`](Eleris.FitsNet.ImageHdu.md#eleris-fitsnet-imagehdu-readrawpixels-1). |
+| [`ReadRawPixels<T>(CancellationToken)`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1-system-threading-cancellationtoken) | Decompresses and reads the stored pixel values, as [`CompressedImageHdu.ReadRawPixels`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1) does, checking `cancellationToken` before each tile. |
 | [`RemoveColumn(int)`](#eleris-fitsnet-compressedimagehdu-removecolumn-system-int32) | Always throws [`NotSupportedException`](https://learn.microsoft.com/dotnet/api/system.notsupportedexception): the keywords that describe the compressed form would no longer match. |
 | [`RemoveRows(long, long)`](#eleris-fitsnet-compressedimagehdu-removerows-system-int64-system-int64) | Always throws [`NotSupportedException`](https://learn.microsoft.com/dotnet/api/system.notsupportedexception): the keywords that describe the compressed form would no longer match. |
 | [`SetColumns(IReadOnlyList<TableColumn>)`](#eleris-fitsnet-compressedimagehdu-setcolumns-system-collections-generic-ireadonlylist-eleris-fitsnet-tablecolumn) | Always throws [`NotSupportedException`](https://learn.microsoft.com/dotnet/api/system.notsupportedexception): the keywords that describe the compressed form would no longer match. |
@@ -161,6 +164,24 @@ public ImageHdu Decompress(int maxDegreeOfParallelism = -1)
 
 - `maxDegreeOfParallelism` — Tiles decoded at the same time (default: one per processor core).
 
+<a id="eleris-fitsnet-compressedimagehdu-decompress-system-int32-system-threading-cancellationtoken"></a>
+### `Decompress(int, CancellationToken)`
+
+Decompresses every tile into an ordinary image, as [`CompressedImageHdu.Decompress`](#eleris-fitsnet-compressedimagehdu-decompress-system-int32) does, checking `cancellationToken` before each tile.
+
+```csharp
+public ImageHdu Decompress(int maxDegreeOfParallelism, CancellationToken cancellationToken)
+```
+
+**Parameters**
+
+- `maxDegreeOfParallelism` — Tiles decoded at the same time: -1 for one per processor core.
+- `cancellationToken` — The token that cancels the decompression.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
 <a id="eleris-fitsnet-compressedimagehdu-iscompressedimage-eleris-fitsnet-fitsheader"></a>
 ### `IsCompressedImage(FitsHeader)`
 
@@ -187,6 +208,27 @@ public T[] ReadPixels<T>() where T : unmanaged
 
 - `T` — The type the physical values are returned as, for example `float` or `double`.
 
+<a id="eleris-fitsnet-compressedimagehdu-readpixels-1-system-threading-cancellationtoken"></a>
+### `ReadPixels<T>(CancellationToken)`
+
+Decompresses and reads physical pixel values, as [`CompressedImageHdu.ReadPixels`](#eleris-fitsnet-compressedimagehdu-readpixels-1) does, checking `cancellationToken` before each tile.
+
+```csharp
+public T[] ReadPixels<T>(CancellationToken cancellationToken) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the physical values are returned as, for example `float` or `double`.
+
+**Parameters**
+
+- `cancellationToken` — The token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
+
 <a id="eleris-fitsnet-compressedimagehdu-readrawpixels-1"></a>
 ### `ReadRawPixels<T>()`
 
@@ -199,6 +241,27 @@ public T[] ReadRawPixels<T>() where T : unmanaged
 **Type parameters**
 
 - `T` — The type the stored values are returned as.
+
+<a id="eleris-fitsnet-compressedimagehdu-readrawpixels-1-system-threading-cancellationtoken"></a>
+### `ReadRawPixels<T>(CancellationToken)`
+
+Decompresses and reads the stored pixel values, as [`CompressedImageHdu.ReadRawPixels`](#eleris-fitsnet-compressedimagehdu-readrawpixels-1) does, checking `cancellationToken` before each tile.
+
+```csharp
+public T[] ReadRawPixels<T>(CancellationToken cancellationToken) where T : unmanaged
+```
+
+**Type parameters**
+
+- `T` — The type the stored values are returned as.
+
+**Parameters**
+
+- `cancellationToken` — The token that cancels the read.
+
+**Exceptions**
+
+- [`OperationCanceledException`](https://learn.microsoft.com/dotnet/api/system.operationcanceledexception) — `cancellationToken` was cancelled.
 
 <a id="eleris-fitsnet-compressedimagehdu-removecolumn-system-int32"></a>
 ### `RemoveColumn(int)`

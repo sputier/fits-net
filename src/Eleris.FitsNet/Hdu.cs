@@ -51,10 +51,10 @@ public abstract class Hdu
     internal bool HeaderBytesEqualOriginal() => OriginalHeader is not null && Header.ToBytes().AsSpan().SequenceEqual(OriginalHeader);
 
     /// <summary>Checksum of the data unit including its block fill (the fill found on disk while the data is untouched).</summary>
-    internal uint ComputeDataSum()
+    internal uint ComputeDataSum(CancellationToken cancellationToken = default)
     {
         using var stream = new ChecksumStream();
-        Source.CopyTo(stream);
+        Source.CopyTo(stream, cancellationToken);
         long pad = HduLayout.Padded(Source.Length) - Source.Length;
         long done = 0;
         if (OriginalFill is { } fill && DataUnchanged)
@@ -78,10 +78,12 @@ public abstract class Hdu
     /// exactly a verification of the file on disk; after any edit the stored sums no longer match, so they are reported
     /// <see cref="ChecksumStatus.Invalid"/>. Only the canonical <c>0xFFFFFFFF</c> total (minus zero) is accepted.
     /// </summary>
-    public ChecksumResult VerifyChecksum()
+    public ChecksumResult VerifyChecksum() => VerifyChecksumCore(CancellationToken.None);
+
+    private ChecksumResult VerifyChecksumCore(CancellationToken cancellationToken)
     {
         bool truncated = FillTruncated && DataUnchanged;
-        uint dataSum = ComputeDataSum();
+        uint dataSum = ComputeDataSum(cancellationToken);
 
         var dataCard = Header.Find("DATASUM");
         var dataStatus = ChecksumStatus.Missing;
@@ -110,16 +112,16 @@ public abstract class Hdu
     /// data changed since it was read or written. <c>AnyInvalid</c>: in that case, whether the stored sums are wrong - they must not be
     /// refreshed, which would hide the corruption.
     /// </summary>
-    internal (bool Clean, bool AnyInvalid) CaptureChecksumState()
+    internal (bool Clean, bool AnyInvalid) CaptureChecksumState(CancellationToken cancellationToken = default)
     {
         if (!(Header.Contains("CHECKSUM") || Header.Contains("DATASUM"))) return (false, false);
         if (!DataUnchanged || !HeaderUnchanged()) return (false, false);
-        var r = VerifyChecksum();
+        var r = VerifyChecksumCore(cancellationToken);
         return (true, r.Checksum == ChecksumStatus.Invalid || r.DataSum == ChecksumStatus.Invalid);
     }
 
     /// <summary>Adds, refreshes or removes CHECKSUM and DATASUM; call after the header is final.</summary>
-    internal void ApplyChecksumPolicy(ChecksumPolicy policy, bool preserve)
+    internal void ApplyChecksumPolicy(ChecksumPolicy policy, bool preserve, CancellationToken cancellationToken = default)
     {
         bool has = Header.Contains("CHECKSUM") || Header.Contains("DATASUM");
         if (policy == ChecksumPolicy.Never)
@@ -130,7 +132,7 @@ public abstract class Hdu
         }
         if (policy == ChecksumPolicy.Auto && (!has || preserve)) return;
 
-        uint dataSum = ComputeDataSum();
+        uint dataSum = ComputeDataSum(cancellationToken);
         Header.Set("DATASUM", Checksum.ToDecimal(dataSum), "data unit checksum");
         Header.Set("CHECKSUM", new string('0', 16), "HDU checksum");
         uint total = Checksum.Add(Checksum.Sum(Header.ToBytes()), dataSum);

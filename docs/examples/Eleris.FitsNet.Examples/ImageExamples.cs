@@ -90,6 +90,21 @@ public static class ImageExamples
         #endregion
     }
 
+    public static void Planes()
+    {
+        #region Example:Images.Planes
+        // Three planes computed separately, for example the red, green and blue channels of a color image.
+        const int width = 64, height = 48;
+        float[] red = new float[width * height], green = new float[width * height], blue = new float[width * height];
+        Array.Fill(green, 0.5f);
+
+        // The planes are not copied into one array: they are read when the image is saved (or its pixels read).
+        var color = ImageHdu.CreateFromPlanes<float>([red, green, blue], width, height, 3);
+        Console.WriteLine(string.Join(" x ", color.Axes));   // 64 x 48 x 3
+        new FitsFile().Add(color).Save("color.fits");
+        #endregion
+    }
+
     public static void RandomGroups()
     {
         #region Example:Images.RandomGroups
