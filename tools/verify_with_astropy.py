@@ -56,6 +56,19 @@ with warnings.catch_warnings():
             assert x.verify_checksum() == 1, f"CHECKSUM of HDU {i}"
             assert x.verify_datasum() == 1, f"DATASUM of HDU {i}"
         assert h[2].data['A'].tolist() == [1, 2, 3]
+with warnings.catch_warnings():
+    warnings.simplefilter('error')
+    with fits.open(f"{d}/planes.fits", checksum=True) as h:
+        h.verify('exception')
+        assert len(h) == 2, len(h)
+        for i, x in enumerate(h):
+            assert x.verify_checksum() == 1, f"CHECKSUM of plane HDU {i}"
+            assert x.verify_datasum() == 1, f"DATASUM of plane HDU {i}"
+        i = np.arange(37 * 23)
+        cube = np.stack([p * 1000 + i * 0.25 for p in range(3)]).astype(np.float32).reshape(3, 23, 37)
+        assert h[0].data.dtype == np.dtype('>f4') and np.array_equal(h[0].data, cube), "float cube written plane by plane"
+        u16 = np.stack([(p * 20000 + i * 7) % 65536 for p in range(3)]).astype(np.uint16).reshape(3, 23, 37)
+        assert h[1].data.dtype == np.uint16 and np.array_equal(h[1].data, u16), "uint16 cube written plane by plane"
 import math
 n = 37 * 23
 ramp = np.array([((i * 31) % 4000 - 2000 + (i % 7)) for i in range(n)], dtype=np.int16).reshape(23, 37)

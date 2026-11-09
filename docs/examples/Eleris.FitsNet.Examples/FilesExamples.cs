@@ -77,6 +77,69 @@ public static class FilesExamples
         #endregion
     }
 
+    public static void CreateNew()
+    {
+        #region Example:Files.CreateNew
+        using var file = FitsFile.Open("m42.fits");
+        file.Primary.Header.Set("OBSERVER", "A. Astronomer");
+
+        // CreateNew never replaces a file, even one that another program creates while the file is being written.
+        file.Save("m42-reduced.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew);
+        try
+        {
+            file.Save("m42-reduced.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew);
+        }
+        catch (FitsFileExistsException e)
+        {
+            Console.WriteLine($"Not replaced: {Path.GetFileName(e.FileName)}");   // Not replaced: m42-reduced.fits
+        }
+        #endregion
+    }
+
+    public static void Cancel()
+    {
+        #region Example:Files.Cancel
+        // A token stops a long read or save between two blocks of data: give up after 30 seconds, or when the user asks.
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var file = FitsFile.Open("m42.fits");
+        var image = (ImageHdu)file.Primary;
+        try
+        {
+            float[] pixels = image.ReadPixels<float>(cancel.Token);
+            ushort[] rows = image.ReadRegion<ushort>(origin: [0, 100], shape: [640, 16], cancel.Token);
+            file.Save("m42-saved.fits", ChecksumPolicy.Auto, cancel.Token);
+            Console.WriteLine($"{pixels.Length} pixels read, {rows.Length} in the rows, file saved");
+        }
+        catch (OperationCanceledException)
+        {
+            // A cancelled save leaves no file behind, and an existing target as it was.
+            Console.WriteLine("Cancelled");
+        }
+        #endregion
+    }
+
+    public static void Async()
+    {
+        AsyncCore().GetAwaiter().GetResult();   // the examples are run one after the other by a synchronous runner
+    }
+
+    private static async Task AsyncCore()
+    {
+        #region Example:Files.Async
+        // The file is read and written with asynchronous I/O; the conversion of the pixels runs between two reads or writes.
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var file = FitsFile.Open("m42.fits");
+        var image = (ImageHdu)file.Primary;
+
+        float[] pixels = await image.ReadPixelsAsync<float>(cancel.Token);
+        ushort[] rows = await image.ReadRegionAsync<ushort>(origin: [0, 100], shape: [640, 16], cancel.Token);
+        Console.WriteLine($"{pixels.Length} pixels, {rows.Length} in the rows");
+
+        // The same guarantees as Save: a temporary file, no file left after a failure, and CreateNew never replaces a file.
+        await file.SaveAsync("m42-async.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew, cancel.Token);
+        #endregion
+    }
+
     public static void Options()
     {
         #region Example:Files.Options

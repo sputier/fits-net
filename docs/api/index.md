@@ -18,9 +18,11 @@ Every public type of the library, by namespace. The pages are generated from the
 | [`FitsCardKind`](Eleris.FitsNet.FitsCardKind.md) | enum | Kind of a header card. |
 | [`FitsException`](Eleris.FitsNet.FitsException.md) | class | Thrown when data does not conform to the FITS standard. |
 | [`FitsFile`](Eleris.FitsNet.FitsFile.md) | class | A FITS file: a primary HDU followed by zero or more extensions. |
+| [`FitsFileExistsException`](Eleris.FitsNet.FitsFileExistsException.md) | class | Thrown by a save in [`FitsSaveMode.CreateNew`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-createnew) mode when something already exists at the target path. |
 | [`FitsHeader`](Eleris.FitsNet.FitsHeader.md) | class | An ordered collection of header cards (without the END card, which is implicit). |
 | [`FitsMimeTypes`](Eleris.FitsNet.FitsMimeTypes.md) | class | The MIME types of Appendix G of the standard (RFC 4047). |
 | [`FitsReadOptions`](Eleris.FitsNet.FitsReadOptions.md) | record | Options controlling how strictly files are parsed. |
+| [`FitsSaveMode`](Eleris.FitsNet.FitsSaveMode.md) | enum | What [`FitsFile.Save`](Eleris.FitsNet.FitsFile.md#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken) does when a file already exists at the path. |
 | [`GenericHdu`](Eleris.FitsNet.GenericHdu.md) | class | An extension this version does not interpret (kept verbatim so it survives a round trip). |
 | [`GreenBankConvention`](Eleris.FitsNet.GreenBankConvention.md) | class | The Green Bank convention (Appendix L): header keywords expanded into binary-table columns, and constant columns collapsed into keywords. |
 | [`Hdu`](Eleris.FitsNet.Hdu.md) | class | A Header Data Unit: a header plus its data. |

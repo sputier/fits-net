@@ -197,6 +197,14 @@ public class AstropyInteropTests
                 .Add(AsciiTableHdu.Create([TableColumn.CreateAsciiInteger("N", [1, 22, 333]), TableColumn.CreateAsciiString("T", ["a", "bb", "ccc"])]))
                 .Save(Path.Combine(dir, "checksums.fits"), ChecksumPolicy.Always);
 
+            // Written plane by plane, without a copy of the cube: a float cube and an unsigned 16-bit cube, with checksums.
+            float[][] floatPlanes = Planes.Float(37, 23, 3);
+            ushort[][] u16Planes = [.. Enumerable.Range(0, 3).Select(p => Enumerable.Range(0, 37 * 23).Select(i => (ushort)((p * 20000 + i * 7) % 65536)).ToArray())];
+            new FitsFile()
+                .Add(ImageHdu.CreateFromPlanes<float>(Planes.AsMemory(floatPlanes), 37, 23, 3))
+                .Add(ImageHdu.CreateFromPlanes<ushort>(Planes.AsMemory(u16Planes), 37, 23, 3))
+                .Save(Path.Combine(dir, "planes.fits"), ChecksumPolicy.Always, FitsSaveMode.CreateNew);
+
             WriteCompressed(dir);
 
             var (exit, output) = Python(ToolPath("verify_with_astropy.py"), dir);

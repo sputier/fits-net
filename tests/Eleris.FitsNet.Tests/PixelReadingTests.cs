@@ -180,14 +180,17 @@ public class PixelReadingTests
     }
 
     [Fact]
-    public void Data_that_ends_early_fails_instead_of_returning_a_partly_filled_array()
+    public async Task Data_that_ends_early_fails_instead_of_returning_a_partly_filled_array()
     {
         // 300 000 bytes announced, 100 000 present: the failure happens in the middle of the chunks.
         using var stream = new MemoryStream(new byte[100_000]);
         var source = new StreamDataSource(stream, 0, 300_000);
         Assert.Throws<FitsException>(() => BigEndian.ReadArray<short>(source));
-        Assert.Throws<FitsException>(() => PixelConvert.ToFloating<float>(source, BitPix.Int16, null, 1, 0));
+        Assert.Throws<FitsException>(() => PixelConvert.ToFloating<float>(source, BitPix.Int16, null, 1, 0).Run(source, default));
         Assert.Throws<FitsException>(() => BigEndian.ReadArrayXor<ushort>(source, 0x8000));
+        // the asynchronous reads too
+        await Assert.ThrowsAsync<FitsException>(() => BigEndian.ArrayRead<short>(source).RunAsync(source, default));
+        await Assert.ThrowsAsync<FitsException>(() => PixelConvert.ToFloating<float>(source, BitPix.Int16, null, 1, 0).RunAsync(source, default));
     }
 
     [Fact]
@@ -195,7 +198,7 @@ public class PixelReadingTests
     {
         var source = new MemoryDataSource(new byte[7]);
         Assert.Throws<FitsException>(() => BigEndian.ReadArray<short>(source));
-        Assert.Throws<FitsException>(() => PixelConvert.ToFloating<double>(source, BitPix.Int32, null, 1, 0));
+        Assert.Throws<FitsException>(() => PixelConvert.ToFloating<double>(source, BitPix.Int32, null, 1, 0).Run(source, default));
         Assert.Equal(7, BigEndian.ReadArray<byte>(source).Length);
     }
 

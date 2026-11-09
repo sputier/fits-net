@@ -51,10 +51,24 @@ public abstract class Hdu
     internal bool HeaderBytesEqualOriginal() => OriginalHeader is not null && Header.ToBytes().AsSpan().SequenceEqual(OriginalHeader);
 
     /// <summary>Checksum of the data unit including its block fill (the fill found on disk while the data is untouched).</summary>
-    internal uint ComputeDataSum()
+    internal uint ComputeDataSum(CancellationToken cancellationToken = default)
     {
         using var stream = new ChecksumStream();
-        Source.CopyTo(stream);
+        Source.CopyTo(stream, cancellationToken);
+        return AddFill(stream);
+    }
+
+    /// <summary>Asynchronous version of <see cref="ComputeDataSum"/>: the data of a file is read asynchronously.</summary>
+    internal async Task<uint> ComputeDataSumAsync(CancellationToken cancellationToken)
+    {
+        using var stream = new ChecksumStream();
+        await Source.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
+        return AddFill(stream);
+    }
+
+    /// <summary>Adds the fill after the data to the sum of the data, and returns the total.</summary>
+    private uint AddFill(ChecksumStream stream)
+    {
         long pad = HduLayout.Padded(Source.Length) - Source.Length;
         long done = 0;
         if (OriginalFill is { } fill && DataUnchanged)
@@ -78,10 +92,11 @@ public abstract class Hdu
     /// exactly a verification of the file on disk; after any edit the stored sums no longer match, so they are reported
     /// <see cref="ChecksumStatus.Invalid"/>. Only the canonical <c>0xFFFFFFFF</c> total (minus zero) is accepted.
     /// </summary>
-    public ChecksumResult VerifyChecksum()
+    public ChecksumResult VerifyChecksum() => VerifyChecksumCore(ComputeDataSum());
+
+    private ChecksumResult VerifyChecksumCore(uint dataSum)
     {
         bool truncated = FillTruncated && DataUnchanged;
-        uint dataSum = ComputeDataSum();
 
         var dataCard = Header.Find("DATASUM");
         var dataStatus = ChecksumStatus.Missing;
@@ -110,27 +125,49 @@ public abstract class Hdu
     /// data changed since it was read or written. <c>AnyInvalid</c>: in that case, whether the stored sums are wrong - they must not be
     /// refreshed, which would hide the corruption.
     /// </summary>
-    internal (bool Clean, bool AnyInvalid) CaptureChecksumState()
-    {
-        if (!(Header.Contains("CHECKSUM") || Header.Contains("DATASUM"))) return (false, false);
-        if (!DataUnchanged || !HeaderUnchanged()) return (false, false);
-        var r = VerifyChecksum();
-        return (true, r.Checksum == ChecksumStatus.Invalid || r.DataSum == ChecksumStatus.Invalid);
-    }
+    internal (bool Clean, bool AnyInvalid) CaptureChecksumState(CancellationToken cancellationToken = default) =>
+        HasUnchangedChecksums ? ChecksumState(VerifyChecksumCore(ComputeDataSum(cancellationToken))) : (false, false);
+
+    /// <summary>Asynchronous version of <see cref="CaptureChecksumState"/>.</summary>
+    internal async Task<(bool Clean, bool AnyInvalid)> CaptureChecksumStateAsync(CancellationToken cancellationToken) =>
+        HasUnchangedChecksums
+            ? ChecksumState(VerifyChecksumCore(await ComputeDataSumAsync(cancellationToken).ConfigureAwait(false)))
+            : (false, false);
+
+    /// <summary>The HDU carries checksum keywords and neither its header nor its data changed since it was read or written.</summary>
+    private bool HasUnchangedChecksums =>
+        (Header.Contains("CHECKSUM") || Header.Contains("DATASUM")) && DataUnchanged && HeaderUnchanged();
+
+    private static (bool Clean, bool AnyInvalid) ChecksumState(ChecksumResult r) =>
+        (true, r.Checksum == ChecksumStatus.Invalid || r.DataSum == ChecksumStatus.Invalid);
 
     /// <summary>Adds, refreshes or removes CHECKSUM and DATASUM; call after the header is final.</summary>
-    internal void ApplyChecksumPolicy(ChecksumPolicy policy, bool preserve)
+    internal void ApplyChecksumPolicy(ChecksumPolicy policy, bool preserve, CancellationToken cancellationToken = default)
+    {
+        if (PrepareChecksums(policy, preserve)) SetChecksums(ComputeDataSum(cancellationToken));
+    }
+
+    /// <summary>Asynchronous version of <see cref="ApplyChecksumPolicy"/>.</summary>
+    internal async Task ApplyChecksumPolicyAsync(ChecksumPolicy policy, bool preserve, CancellationToken cancellationToken)
+    {
+        if (PrepareChecksums(policy, preserve)) SetChecksums(await ComputeDataSumAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>Removes the keywords for <see cref="ChecksumPolicy.Never"/>; returns true when they must be computed.</summary>
+    private bool PrepareChecksums(ChecksumPolicy policy, bool preserve)
     {
         bool has = Header.Contains("CHECKSUM") || Header.Contains("DATASUM");
         if (policy == ChecksumPolicy.Never)
         {
             Header.Remove("CHECKSUM");
             Header.Remove("DATASUM");
-            return;
+            return false;
         }
-        if (policy == ChecksumPolicy.Auto && (!has || preserve)) return;
+        return !(policy == ChecksumPolicy.Auto && (!has || preserve));
+    }
 
-        uint dataSum = ComputeDataSum();
+    private void SetChecksums(uint dataSum)
+    {
         Header.Set("DATASUM", Checksum.ToDecimal(dataSum), "data unit checksum");
         Header.Set("CHECKSUM", new string('0', 16), "HDU checksum");
         uint total = Checksum.Add(Checksum.Sum(Header.ToBytes()), dataSum);

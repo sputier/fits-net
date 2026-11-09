@@ -13,7 +13,7 @@
   <!-- NuGet package. The version is the single source of the release: the release workflow checks that the tag matches it. -->
   <PropertyGroup>
     <PackageId>Eleris.FitsNet</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Sébastien Putier</Authors>
     <Copyright>Copyright (c) 2026 Sébastien Putier</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -27,6 +27,8 @@
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <EnablePackageValidation>true</EnablePackageValidation>
+    <!-- The last version on nuget.org: the package validation refuses any change of its API that is not compatible. -->
+    <PackageValidationBaselineVersion>0.1.0</PackageValidationBaselineVersion>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
