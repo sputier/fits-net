@@ -516,9 +516,11 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// Writes the file to <paramref name="path"/>, choosing with <paramref name="mode"/> what happens when a file already exists there.
     /// <see cref="FitsSaveMode.Overwrite"/> is <see cref="Save(string, ChecksumPolicy, CancellationToken)"/>.
     /// <see cref="FitsSaveMode.CreateNew"/> never replaces anything: the file is written to a temporary file in the same directory, then
-    /// moved to <paramref name="path"/> by an operation that fails if the path exists, so a file that appears while the save runs is not
-    /// replaced either (no check-then-write race; on Unix, where .NET makes this move with a hard link, on file systems that support hard
-    /// links). In that mode <paramref name="path"/> is taken as it is (a symbolic link there counts as
+    /// put in place by an operation that fails if the path exists, so a file that appears while the save runs is not replaced either (no
+    /// check-then-write race), and of concurrent <see cref="FitsSaveMode.CreateNew"/> saves to one path exactly one succeeds. On Windows that
+    /// operation is the move itself. On Unix, where the move of .NET checks the path then renames, the name is first claimed with an
+    /// exclusive creation (<c>O_CREAT | O_EXCL</c>), then the temporary file is renamed over the claim; until that rename, a 16-byte file
+    /// is at the path, and a process killed in between leaves it there. In that mode <paramref name="path"/> is taken as it is (a symbolic link there counts as
     /// an existing file), and a failure, <see cref="FitsFileExistsException"/> included, leaves the headers and the state of the HDUs as
     /// they were.
     /// </summary>
@@ -717,18 +719,83 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     }
 
     /// <summary>
-    /// Moves the finished temporary file to a target that must not exist. The move itself refuses an existing target, atomically, so a file
-    /// created by someone else after the early check is never replaced.
+    /// Moves the finished temporary file to a target that must not exist, without ever replacing a file created by someone else after the
+    /// early check.
     /// </summary>
-    private static void PublishNew(string temp, string target)
+    /// <remarks>
+    /// <para>
+    /// On Windows, <c>File.Move(overwrite: false)</c> is <c>MoveFileEx</c> without <c>MOVEFILE_REPLACE_EXISTING</c>: the move itself refuses
+    /// an existing target, atomically.
+    /// </para>
+    /// <para>
+    /// On Unix, <c>File.Move(overwrite: false)</c> is not atomic: .NET checks the target with <c>lstat</c>, then calls <c>rename</c>, which
+    /// replaces a file created in between (two concurrent saves both succeed, the last one wins). The name is therefore claimed first with
+    /// <see cref="FileMode.CreateNew"/>, that is <c>open(O_CREAT | O_EXCL)</c>, which only one process can win and which fails on any existing
+    /// entry, a symbolic link included. The temporary file is then renamed over this claim, which is ours. The claim holds a random token,
+    /// so that a failed write or rename removes it only if it is still ours. What remains: from the claim to the rename, a 16-byte file
+    /// exists at the target (a directory watcher sees it created); a process killed in between leaves that 16-byte file, which then makes every
+    /// <see cref="FitsSaveMode.CreateNew"/> save to the path fail until it is deleted; and a writer that does not use an exclusive creation
+    /// (an <see cref="FitsSaveMode.Overwrite"/> save, a program that renames its file into place) and writes the path in between has its file
+    /// replaced.
+    /// </para>
+    /// </remarks>
+    internal static void PublishNew(string temp, string target)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                File.Move(temp, target, overwrite: false);
+            }
+            catch (Exception e) when ((e is IOException or UnauthorizedAccessException) && ExistsAnything(target))
+            {
+                throw new FitsFileExistsException(target, e);
+            }
+            return;
+        }
+
+        byte[] token = Guid.NewGuid().ToByteArray();
+        FileStream claim;
         try
         {
-            File.Move(temp, target, overwrite: false);
+            // FileShare.Read: no lock is needed (O_EXCL already decides), and a reader of the claim gets its bytes, not a sharing error
+            claim = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         }
         catch (Exception e) when ((e is IOException or UnauthorizedAccessException) && ExistsAnything(target))
         {
             throw new FitsFileExistsException(target, e);
+        }
+        try
+        {
+            using (claim) claim.Write(token);
+            File.Move(temp, target, overwrite: true);   // rename(2): replaces our own claim, atomically
+        }
+        catch
+        {
+            RemoveClaim(target, token);   // a failed write (disk full) or rename: the claim must not stay in place of a file
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Deletes the claim of <see cref="PublishNew"/> if the file at <paramref name="target"/> is still that claim, whole or partly written
+    /// (a prefix of <paramref name="token"/>). Between the check and the deletion another program could replace it: a window of two system
+    /// calls, after a failure that is already rare.
+    /// </summary>
+    internal static void RemoveClaim(string target, byte[] token)
+    {
+        try
+        {
+            var info = new FileInfo(target);
+            if (!info.Exists || info.LinkTarget is not null || info.Length > token.Length) return;
+            var content = new byte[info.Length];
+            using (var stream = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                content = content[..stream.ReadAtLeast(content, content.Length, throwOnEndOfStream: false)];
+            if (content.Length == info.Length && token.AsSpan().StartsWith(content)) File.Delete(target);
+        }
+        catch (Exception)
+        {
+            // best effort: the caller's error is the one that matters
         }
     }
 

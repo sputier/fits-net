@@ -8,8 +8,11 @@ Additions only: the API and the behaviour of 0.1.0 are unchanged (checked by pac
   `ReadPixels` and `ReadRawPixels`, and `FitsFile.Save` have an overload that takes a `CancellationToken`. It is checked between blocks
   of data and between tiles. A cancelled save to a path leaves no temporary file and an existing target untouched, and a cancelled save
   restores the headers.
-- `FitsFile.Save(path, checksums, FitsSaveMode.CreateNew)` never replaces a file: the temporary file is moved to the path by an
-  operation that fails if the path exists, so a file that appears during the save is kept too. The save then throws
+- `FitsFile.Save(path, checksums, FitsSaveMode.CreateNew)` never replaces a file: the temporary file is put in place by an
+  operation that fails if the path exists, so a file that appears during the save is kept too, and of concurrent `CreateNew` saves to
+  one path exactly one succeeds. On Windows it is the move itself. On Unix, where the move of .NET checks the path then renames, the
+  path is first claimed with an exclusive creation (`O_CREAT | O_EXCL`), then the temporary file is renamed over the claim: until
+  then a 16-byte file is at the path, and a process killed in between leaves it there (see `docs/files.md`). The save then throws
   `FitsFileExistsException`, an `IOException`. `FitsSaveMode.Overwrite` is the behaviour of the other overloads.
 - Asynchronous I/O: `ImageHdu.ReadPixelsAsync`, `ReadRawPixelsAsync`, `ReadRegionAsync` and `ReadRawRegionAsync`,
   `CompressedImageHdu.ReadPixelsAsync` and `ReadRawPixelsAsync`, `FitsFile.SaveAsync` to a stream and to a path (with `FitsSaveMode`).
