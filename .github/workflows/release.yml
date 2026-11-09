@@ -65,6 +65,7 @@ jobs:
     environment: nuget
     permissions:
       contents: write
+      id-token: write   # GitHub's OIDC token, exchanged by NuGet/login for a short-lived nuget.org API key (trusted publishing)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,10 +78,15 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: "NuGet login (trusted publishing, a temporary API key valid one hour)"
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}   # the profile name on nuget.org, not the e-mail address
       - name: Push to nuget.org (the .snupkg symbols follow the .nupkg)
         run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
       - name: GitHub release (the notes are the section of CHANGELOG.md)
         run: |
           python tools/changelog_notes.py ${{ needs.pack.outputs.version }} > release-notes.md

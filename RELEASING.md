@@ -5,11 +5,15 @@ The package is `Eleris.FitsNet`. Its version is `<Version>` in `src/Eleris.FitsN
 
 ## One-time setup
 
-1. On [nuget.org](https://www.nuget.org), create an API key (Account > API Keys) limited to **Push new packages and package
-   versions**, with the glob pattern `Eleris.FitsNet*`. The first push creates the package; for the keys of a later version, the key
-   can be limited to that package.
-2. On GitHub, in *Settings > Environments*, create the environment `nuget`, add the secret `NUGET_API_KEY` to it, and, if every
-   publication must be approved by hand, add yourself as a required reviewer.
+The workflow publishes with **trusted publishing**: no API key is stored anywhere. GitHub proves to nuget.org which repository,
+workflow and environment is running, and nuget.org answers with an API key that is valid for one hour.
+
+1. On [nuget.org](https://www.nuget.org), click your user name, choose **Trusted Publishing** and add a policy:
+   *Repository Owner* `sputier`, *Repository* `fits-net`, *Workflow File* `release.yml` (the file name only), *Environment* `nuget`,
+   scopes **Push new packages and package versions** with the glob pattern `Eleris.FitsNet*`. The policy is temporary (7 days) until
+   a first publication succeeds, then it is permanent.
+2. On GitHub, in *Settings > Environments*, create the environment `nuget`, add the secret `NUGET_USER` to it (your nuget.org profile
+   name, not your e-mail address), and, if every publication must be approved by hand, add yourself as a required reviewer.
 3. Optional: request the reservation of the `Eleris.` ID prefix from nuget.org (see "Id prefix reservation" in the nuget.org
    documentation). The packages with a reserved prefix show a verified badge.
 
