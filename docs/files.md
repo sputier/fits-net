@@ -113,6 +113,79 @@ A failed save throws an `IOException` and leaves the headers and the state of th
 
 A file that is read and saved without a change is written back byte for byte, including the cards and comments as they were written.
 
+### Never replace a file
+
+`Save(path, checksums, FitsSaveMode.CreateNew)` refuses to replace anything. When something exists at the path, the save throws a [`FitsFileExistsException`](api/Eleris.FitsNet.FitsFileExistsException.md), an `IOException` that gives the path in `FileName`. The check is not a test made before writing, which another program could beat: the temporary file is moved to the path by an operation that fails if the path exists. A file created by someone else while the save runs is therefore kept, and the save fails. (On Linux and macOS, .NET makes this move with a hard link, so the guarantee holds on the file systems that support them, which are the usual ones.) In every case nothing is replaced, no temporary file is left, and the headers and the HDUs are as they were before the call. `FitsSaveMode.Overwrite` is the behaviour of the other overloads.
+
+<!-- example: Files.CreateNew -->
+```csharp
+using var file = FitsFile.Open("m42.fits");
+file.Primary.Header.Set("OBSERVER", "A. Astronomer");
+
+// CreateNew never replaces a file, even one that another program creates while the file is being written.
+file.Save("m42-reduced.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew);
+try
+{
+    file.Save("m42-reduced.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew);
+}
+catch (FitsFileExistsException e)
+{
+    Console.WriteLine($"Not replaced: {Path.GetFileName(e.FileName)}");   // Not replaced: m42-reduced.fits
+}
+```
+<!-- /example -->
+
+In this mode a symbolic link at the path is an existing file, even when its target does not exist: nothing is written through it.
+
+### Cancellation
+
+The long operations take a `CancellationToken` in an overload of their own: `ReadPixels<T>`, `ReadRawPixels<T>`, `ReadRegion<T>`, `ReadRawRegion<T>` and `Subimage` of an [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md), `Decompress`, `ReadPixels<T>` and `ReadRawPixels<T>` of a [`CompressedImageHdu`](api/Eleris.FitsNet.CompressedImageHdu.md), and `Save`. The token is checked between blocks of data (and between tiles of a compressed image), and a cancelled operation throws an `OperationCanceledException`.
+
+<!-- example: Files.Cancel -->
+```csharp
+// A token stops a long read or save between two blocks of data: give up after 30 seconds, or when the user asks.
+using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+using var file = FitsFile.Open("m42.fits");
+var image = (ImageHdu)file.Primary;
+try
+{
+    float[] pixels = image.ReadPixels<float>(cancel.Token);
+    ushort[] rows = image.ReadRegion<ushort>(origin: [0, 100], shape: [640, 16], cancel.Token);
+    file.Save("m42-saved.fits", ChecksumPolicy.Auto, cancel.Token);
+    Console.WriteLine($"{pixels.Length} pixels read, {rows.Length} in the rows, file saved");
+}
+catch (OperationCanceledException)
+{
+    // A cancelled save leaves no file behind, and an existing target as it was.
+    Console.WriteLine("Cancelled");
+}
+```
+<!-- /example -->
+
+A cancelled save to a path deletes its temporary file: the target, if there was one, is as it was, and the headers and the HDUs are as they were before the call. The token is checked until the temporary file is complete; the move that puts it in place is not interrupted. A cancelled save to a stream also restores the headers, but the stream may already hold the beginning of the file.
+
+### Asynchronous I/O
+
+`ReadPixelsAsync<T>`, `ReadRawPixelsAsync<T>`, `ReadRegionAsync<T>` and `ReadRawRegionAsync<T>` of an [`ImageHdu`](api/Eleris.FitsNet.ImageHdu.md), `ReadPixelsAsync<T>` and `ReadRawPixelsAsync<T>` of a [`CompressedImageHdu`](api/Eleris.FitsNet.CompressedImageHdu.md), and `FitsFile.SaveAsync` to a stream or to a path, are the asynchronous versions of the methods above, with the same results, byte for byte, and the same guarantees. The data of a file opened with `Open` is read with asynchronous I/O, and a save writes every block with `WriteAsync` (a save to a path opens its temporary file for asynchronous I/O). The conversion of the pixels, the checksums and the decompression of the tiles stay synchronous: they run between two reads or writes. Flushing the temporary file to the disk and moving it in place have no asynchronous version in the system and are done synchronously.
+
+<!-- example: Files.Async -->
+```csharp
+// The file is read and written with asynchronous I/O; the conversion of the pixels runs between two reads or writes.
+using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+using var file = FitsFile.Open("m42.fits");
+var image = (ImageHdu)file.Primary;
+
+float[] pixels = await image.ReadPixelsAsync<float>(cancel.Token);
+ushort[] rows = await image.ReadRegionAsync<ushort>(origin: [0, 100], shape: [640, 16], cancel.Token);
+Console.WriteLine($"{pixels.Length} pixels, {rows.Length} in the rows");
+
+// The same guarantees as Save: a temporary file, no file left after a failure, and CreateNew never replaces a file.
+await file.SaveAsync("m42-async.fits", ChecksumPolicy.Auto, FitsSaveMode.CreateNew, cancel.Token);
+```
+<!-- /example -->
+
+How the system carries out the asynchronous I/O depends on the platform. On Windows, the temporary file of a save is written with overlapped I/O. A file opened with `Open` keeps a synchronous handle, which keeps the synchronous reads fast, so .NET carries out its asynchronous reads on its thread pool: that is also what .NET does for every file on Linux and macOS. Either way the calling thread does not wait for the file. Work that does not wait for I/O runs on the thread that calls or continues the method: the conversion of each block, the decompression of the tiles, and the whole read of data that is already in memory (`FitsFile.Read`, `Create`, `CreateFromPlanes`), which returns a completed task. Flushing a large temporary file to the disk can take a noticeable time. Do not use the file or its HDUs until the task has completed.
+
 ## Checksums when saving
 
 The second argument of `Save` is a [`ChecksumPolicy`](api/Eleris.FitsNet.ChecksumPolicy.md): `Auto` (the default) keeps up to date the checksums that already exist, `Always` writes them in every HDU, `Never` removes them. See [Checksums](checksums.md).

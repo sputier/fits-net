@@ -6,8 +6,8 @@ namespace Eleris.FitsNet;
 
 /// <summary>
 /// A tile-compressed image (standard section 10): a binary table with <c>ZIMAGE = T</c> whose rows hold the compressed tiles.
-/// It is a <see cref="BinaryTableHdu"/>, so the table API still works, and it adds the image API: <see cref="Decompress"/>,
-/// <see cref="ReadPixels{T}"/> and <see cref="Compress"/>.
+/// It is a <see cref="BinaryTableHdu"/>, so the table API still works, and it adds the image API: <see cref="Decompress(int)"/>,
+/// <see cref="ReadPixels{T}()"/> and <see cref="Compress"/>.
 /// </summary>
 public sealed class CompressedImageHdu : BinaryTableHdu
 {
@@ -104,9 +104,20 @@ public sealed class CompressedImageHdu : BinaryTableHdu
     /// <summary>
     /// Runs the independent tiles on several cores. If tiles fail, the error of the lowest tile index is rethrown (unwrapped), so
     /// the outcome does not depend on thread timing. The degree is reduced for very large tiles to bound the memory in flight.
+    /// <paramref name="cancellationToken"/> is checked before each tile; a cancelled run stops starting tiles and throws.
     /// </summary>
-    internal static void RunTiles(long count, int maxDegreeOfParallelism, double tilePixels, Action<long> body)
+    internal static void RunTiles(long count, int maxDegreeOfParallelism, double tilePixels, Action<long> body,
+        CancellationToken cancellationToken = default)
     {
+        if (cancellationToken.CanBeCanceled)
+        {
+            var run = body;
+            body = t =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                run(t);
+            };
+        }
         if (maxDegreeOfParallelism == 0 || maxDegreeOfParallelism < -1)
             throw new ArgumentOutOfRangeException(nameof(maxDegreeOfParallelism), "Use -1 (all cores) or a positive number.");
         int degree = maxDegreeOfParallelism == -1 ? Environment.ProcessorCount : maxDegreeOfParallelism;
@@ -146,8 +157,18 @@ public sealed class CompressedImageHdu : BinaryTableHdu
 
     /// <summary>Decompresses every tile into an ordinary image (BSCALE, BZERO, BLANK and other cards are carried over).</summary>
     /// <param name="maxDegreeOfParallelism">Tiles decoded at the same time (default: one per processor core).</param>
-    public ImageHdu Decompress(int maxDegreeOfParallelism = -1)
+    public ImageHdu Decompress(int maxDegreeOfParallelism = -1) => Decompress(maxDegreeOfParallelism, CancellationToken.None);
+
+    /// <summary>
+    /// Decompresses every tile into an ordinary image, as <see cref="Decompress(int)"/> does, checking <paramref name="cancellationToken"/>
+    /// before each tile.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <param name="maxDegreeOfParallelism">Tiles decoded at the same time: -1 for one per processor core.</param>
+    /// <param name="cancellationToken">The token that cancels the decompression.</param>
+    public ImageHdu Decompress(int maxDegreeOfParallelism, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (maxDegreeOfParallelism == 0 || maxDegreeOfParallelism < -1)
             throw new ArgumentOutOfRangeException(nameof(maxDegreeOfParallelism), "Use -1 (all cores) or a positive number.");
         var p = ReadParams();
@@ -160,6 +181,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
             throw new FitsException("The decompressed image is larger than 2 GB.");
 
         var columns = ReadColumns(); // one pass over the data for all the columns
+        cancellationToken.ThrowIfCancellationRequested();
         Array? Data(string name) => columns.FirstOrDefault(c => string.Equals(c.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase))?.Data;
         double[]? Doubles(string name)
         {
@@ -273,7 +295,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
                     if (pooled) ArrayPool<int>.Shared.Return(ints);
                 }
             }
-        });
+        }, cancellationToken);
         }
         catch (OutOfMemoryException e)
         {
@@ -504,13 +526,65 @@ public sealed class CompressedImageHdu : BinaryTableHdu
 
     // ---- Pixel access (through the decompressed image) --------------------------------------------------------------
 
-    /// <summary>Decompresses and reads the stored pixel values, like <see cref="ImageHdu.ReadRawPixels{T}"/>.</summary>
+    /// <summary>Decompresses and reads the stored pixel values, like <see cref="ImageHdu.ReadRawPixels{T}()"/>.</summary>
     /// <typeparam name="T">The type the stored values are returned as.</typeparam>
     public T[] ReadRawPixels<T>() where T : unmanaged => Decompress().ReadRawPixels<T>();
 
-    /// <summary>Decompresses and reads physical pixel values, like <see cref="ImageHdu.ReadPixels{T}"/>.</summary>
+    /// <summary>
+    /// Decompresses and reads the stored pixel values, as <see cref="ReadRawPixels{T}()"/> does, checking
+    /// <paramref name="cancellationToken"/> before each tile.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="cancellationToken">The token that cancels the read.</param>
+    public T[] ReadRawPixels<T>(CancellationToken cancellationToken) where T : unmanaged =>
+        Decompress(-1, cancellationToken).ReadRawPixels<T>(cancellationToken);
+
+    /// <summary>Decompresses and reads physical pixel values, like <see cref="ImageHdu.ReadPixels{T}()"/>.</summary>
     /// <typeparam name="T">The type the physical values are returned as, for example <c>float</c> or <c>double</c>.</typeparam>
     public T[] ReadPixels<T>() where T : unmanaged => Decompress().ReadPixels<T>();
+
+    /// <summary>
+    /// Decompresses and reads physical pixel values, as <see cref="ReadPixels{T}()"/> does, checking <paramref name="cancellationToken"/>
+    /// before each tile.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the physical values are returned as, for example <c>float</c> or <c>double</c>.</typeparam>
+    /// <param name="cancellationToken">The token that cancels the read.</param>
+    public T[] ReadPixels<T>(CancellationToken cancellationToken) where T : unmanaged =>
+        Decompress(-1, cancellationToken).ReadPixels<T>(cancellationToken);
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadPixels{T}()"/>: the compressed data of a lazily opened file is read with asynchronous I/O, then
+    /// the tiles are decompressed on all the cores as <see cref="ReadPixels{T}(CancellationToken)"/> does, checking
+    /// <paramref name="cancellationToken"/> between blocks of the read and before each tile.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the physical values are returned as, for example <c>float</c> or <c>double</c>.</typeparam>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged =>
+        (await LoadAsync(cancellationToken).ConfigureAwait(false)).ReadPixels<T>(cancellationToken);
+
+    /// <summary>
+    /// Asynchronous version of <see cref="ReadRawPixels{T}()"/>: the compressed data of a lazily opened file is read with asynchronous I/O,
+    /// then decompressed as <see cref="ReadRawPixels{T}(CancellationToken)"/> does.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <typeparam name="T">The type the stored values are returned as.</typeparam>
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    public async Task<T[]> ReadRawPixelsAsync<T>(CancellationToken cancellationToken = default) where T : unmanaged =>
+        (await LoadAsync(cancellationToken).ConfigureAwait(false)).ReadRawPixels<T>(cancellationToken);
+
+    /// <summary>
+    /// This image with its compressed data in memory, read asynchronously from a lazily opened file (the synchronous decompression
+    /// loads it too). Data already in memory is used as it is.
+    /// </summary>
+    private async Task<CompressedImageHdu> LoadAsync(CancellationToken cancellationToken)
+    {
+        if (Source.IsInMemory) return this;
+        byte[] data = await Source.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        return new CompressedImageHdu(Header, new MemoryDataSource(data));
+    }
 
     // ---- Compression ---------------------------------------------------------------------------------------------
 

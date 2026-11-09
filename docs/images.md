@@ -33,6 +33,26 @@ Console.WriteLine(empty.Axes.Count);              // 0
 ```
 <!-- /example -->
 
+### Plane by plane
+
+`ImageHdu.CreateFromPlanes<T>` makes an image from planes held in separate buffers, such as the channels of a color image, without putting them together in one array. A plane is all the pixels that share one index on the last axis: one `ReadOnlyMemory<T>` per plane, in order, each with the length of the other axes multiplied together (a 2D image can be given row by row in the same way). The file written is byte for byte the one `Create<T>` writes for the same pixels.
+
+<!-- example: Images.Planes -->
+```csharp
+// Three planes computed separately, for example the red, green and blue channels of a color image.
+const int width = 64, height = 48;
+float[] red = new float[width * height], green = new float[width * height], blue = new float[width * height];
+Array.Fill(green, 0.5f);
+
+// The planes are not copied into one array: they are read when the image is saved (or its pixels read).
+var color = ImageHdu.CreateFromPlanes<float>([red, green, blue], width, height, 3);
+Console.WriteLine(string.Join(" x ", color.Axes));   // 64 x 48 x 3
+new FitsFile().Add(color).Save("color.fits");
+```
+<!-- /example -->
+
+The planes are not copied, not even into the bytes of the file: they are converted, a block at a time, each time the data is needed, which is when the file is saved, its checksums computed or its pixels read. The image keeps them after a save. So they must stay valid and unchanged as long as the image uses them, until it is discarded or `SetPixels<T>` has replaced its data: do not return a pooled buffer before, and do not change a plane during a save, which reads the planes once for the checksums and once for the file. A large cube is then held in memory once, in the buffers you already have. An array of arrays converts to the list of planes with `[.. planes.Select(p => (ReadOnlyMemory<float>)p)]`.
+
 ## Read pixels
 
 Two methods read the whole data:

@@ -279,103 +279,206 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// <summary>Writes the file to a stream.</summary>
     /// <param name="stream">The destination.</param>
     /// <param name="checksums">What to do with the CHECKSUM and DATASUM keywords.</param>
-    public void Save(Stream stream, ChecksumPolicy checksums = ChecksumPolicy.Auto)
+    public void Save(Stream stream, ChecksumPolicy checksums = ChecksumPolicy.Auto) => Save(stream, checksums, CancellationToken.None);
+
+    /// <summary>
+    /// Writes the file to a stream, checking <paramref name="cancellationToken"/> between blocks of data. A cancelled save throws an
+    /// <see cref="OperationCanceledException"/> and leaves the headers and the state of the HDUs as they were, but the stream may already
+    /// hold the beginning of the file: discard it.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the file was written completely.</exception>
+    /// <param name="stream">The destination.</param>
+    /// <param name="checksums">What to do with the CHECKSUM and DATASUM keywords.</param>
+    /// <param name="cancellationToken">The token that cancels the save.</param>
+    public void Save(Stream stream, ChecksumPolicy checksums, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        WriteCore(stream, checksums).Commit();
+        WriteCore(stream, checksums, cancellationToken).Commit();
+    }
+
+    /// <summary>
+    /// Writes the file to a stream asynchronously: the data of a lazily opened file is read asynchronously and every block is written
+    /// with <see cref="Stream.WriteAsync(ReadOnlyMemory{byte}, CancellationToken)"/>; the conversion of the data runs between the writes.
+    /// The bytes written are those of <see cref="Save(Stream, ChecksumPolicy, CancellationToken)"/>, with the same cancellation: the
+    /// headers and the state of the HDUs are restored, but the stream may already hold the beginning of the file. Like every member of this
+    /// class, it must not run at the same time as another use of the file or of its HDUs: do not edit them until the task
+    /// has completed.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the file was written completely.</exception>
+    /// <param name="stream">The destination.</param>
+    /// <param name="checksums">What to do with the CHECKSUM and DATASUM keywords.</param>
+    /// <param name="cancellationToken">A token that cancels the save.</param>
+    public async Task SaveAsync(Stream stream, ChecksumPolicy checksums = ChecksumPolicy.Auto, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        (await WriteCoreAsync(stream, checksums, cancellationToken).ConfigureAwait(false)).Commit();
     }
 
     /// <summary>
     /// A file that has been written but not yet published: <see cref="Commit"/> makes the saved form the reference of the in-memory
     /// HDUs, <see cref="Rollback"/> puts their headers back as they were.
     /// </summary>
-    private sealed record SaveTransaction(long[] Offsets, Action Commit, Action Rollback);
-
-    /// <summary>Writes every HDU. The headers keep the changes of the save until the transaction is committed or rolled back.</summary>
-    private SaveTransaction WriteCore(Stream stream, ChecksumPolicy checksums)
+    private sealed record SaveTransaction(long[] Offsets, Action Commit, Action Rollback)
     {
-        if (_hdus.Count == 0)
-        {
-            new ImageHdu().Header.Write(stream);
-            return new SaveTransaction([], () => { }, () => { });
-        }
+        public static SaveTransaction Empty { get; } = new([], () => { }, () => { });
+    }
 
-        // Normalizing and checksumming rewrite headers in place; roll every header back if anything fails
-        // (invalid HDU, unreadable data, failing output, or a file that cannot be put in place) so a failed save leaves the
-        // in-memory model untouched. A successful save does update the headers (mandatory keywords, checksums) and makes them the reference.
-        var snapshots = _hdus.Select(h => h.Header.Cards.ToList()).ToList();
-        var states = _hdus.Select(h => checksums == ChecksumPolicy.Auto ? h.CaptureChecksumState() : (false, false)).ToList();
-        var wasClean = _hdus.Select(h => h.IsClean).ToList();
-        var headerBytes = new byte[_hdus.Count][];
-        var offsets = new long[_hdus.Count];
-        try
-        {
-            for (int i = 0; i < _hdus.Count; i++)
-            {
-                _hdus[i].Normalize(i == 0, _hdus.Count > 1);
-                _hdus[i].ValidateForWrite(i == 0);
-            }
-            for (int i = 0; i < _hdus.Count; i++)
-            {
-                // An HDU that is as it was read keeps its checksum keywords untouched when its header bytes are unchanged
-                // (so an unedited file is rewritten identically) and when they were wrong (so corruption is never hidden).
-                bool preserve = states[i].Item1 && (states[i].Item2 || _hdus[i].HeaderBytesEqualOriginal());
-                _hdus[i].ApplyChecksumPolicy(checksums, preserve);
-            }
+    /// <summary>
+    /// The state of a save in progress, shared by the synchronous and the asynchronous writes: the headers as they were (to roll back),
+    /// the header bytes and data offsets written (to commit), and the position in the output.
+    /// </summary>
+    /// <remarks>
+    /// Normalizing and checksumming rewrite headers in place; every header is rolled back if anything fails (invalid HDU, unreadable data,
+    /// failing output, or a file that cannot be put in place) so a failed save leaves the in-memory model untouched. A successful save does
+    /// update the headers (mandatory keywords, checksums) and makes them the reference.
+    /// </remarks>
+    private sealed class SaveState(IReadOnlyList<Hdu> hdus)
+    {
+        private readonly List<List<FitsCard>> _snapshots = hdus.Select(h => h.Header.Cards.ToList()).ToList();
+        private readonly List<bool> _wasClean = hdus.Select(h => h.IsClean).ToList();
+        private readonly byte[][] _headerBytes = new byte[hdus.Count][];
+        private readonly long[] _offsets = new long[hdus.Count];
+        private long _position;
 
-            long position = 0;
-            for (int i = 0; i < _hdus.Count; i++)
-            {
-                var hdu = _hdus[i];
-                byte[] header = hdu.Header.ToBytes();
-                headerBytes[i] = header;
-                stream.Write(header);
-                position += header.Length;
-                offsets[i] = position;
-                hdu.Source.CopyTo(stream);
-                long pad = HduLayout.Padded(hdu.DataLength) - hdu.DataLength;
-                if (pad > 0)
-                {
-                    var padding = new byte[pad];
-                    if (hdu.PaddingByte != 0) Array.Fill(padding, hdu.PaddingByte);
-                    stream.Write(padding);
-                }
-                position += hdu.DataLength + pad;
-            }
-        }
-        catch
+        /// <summary>Makes the mandatory keywords consistent and checks that each header describes its data.</summary>
+        public void Normalize()
         {
-            Restore();
-            throw;
-        }
-
-        void Restore()
-        {
-            for (int i = 0; i < _hdus.Count; i++)
+            for (int i = 0; i < hdus.Count; i++)
             {
-                _hdus[i].Header.ReplaceAll(snapshots[i]);
-                if (wasClean[i]) _hdus[i].CleanVersion = _hdus[i].Header.Version; // the cards are what they were: so is "unchanged"
+                hdus[i].Normalize(i == 0, hdus.Count > 1);
+                hdus[i].ValidateForWrite(i == 0);
             }
         }
 
-        void Commit()
+        /// <summary>
+        /// An HDU that is as it was read keeps its checksum keywords untouched when its header bytes are unchanged (so an unedited file is
+        /// rewritten identically) and when they were wrong (so corruption is never hidden).
+        /// </summary>
+        public static bool Preserve(Hdu hdu, (bool Clean, bool AnyInvalid) state) =>
+            state.Clean && (state.AnyInvalid || hdu.HeaderBytesEqualOriginal());
+
+        /// <summary>The header of HDU <paramref name="i"/>, to be written now, followed by its data.</summary>
+        public byte[] Header(int i)
         {
-            for (int i = 0; i < _hdus.Count; i++)
+            byte[] header = hdus[i].Header.ToBytes();
+            _headerBytes[i] = header;
+            _position += header.Length;
+            _offsets[i] = _position;
+            return header;
+        }
+
+        /// <summary>The fill to write after the data of HDU <paramref name="i"/> (empty when there is none).</summary>
+        public byte[] Fill(int i)
+        {
+            var hdu = hdus[i];
+            long pad = HduLayout.Padded(hdu.DataLength) - hdu.DataLength;
+            _position += hdu.DataLength + pad;
+            if (pad == 0) return [];
+            var padding = new byte[pad];
+            if (hdu.PaddingByte != 0) Array.Fill(padding, hdu.PaddingByte);
+            return padding;
+        }
+
+        public void Restore()
+        {
+            for (int i = 0; i < hdus.Count; i++)
+            {
+                hdus[i].Header.ReplaceAll(_snapshots[i]);
+                if (_wasClean[i]) hdus[i].CleanVersion = hdus[i].Header.Version; // the cards are what they were: so is "unchanged"
+            }
+        }
+
+        public SaveTransaction Transaction() => new(_offsets, Commit, Restore);
+
+        private void Commit()
+        {
+            for (int i = 0; i < hdus.Count; i++)
             {
                 // The saved form is now the reference for "unchanged": its header bytes, its header version and its data (the data
                 // source is updated by Rebind when the file replaces the one it was read from). The fill written is the canonical one.
-                var hdu = _hdus[i];
+                var hdu = hdus[i];
                 bool hasSums = hdu.Header.Contains("CHECKSUM") || hdu.Header.Contains("DATASUM");
-                hdu.OriginalHeader = hasSums ? headerBytes[i] : null;
+                hdu.OriginalHeader = hasSums ? _headerBytes[i] : null;
                 hdu.CleanVersion = hdu.Header.Version;
                 hdu.OriginalSource = hdu.Source;
                 hdu.OriginalFill = null;
                 hdu.FillTruncated = false;
             }
         }
+    }
 
-        return new SaveTransaction(offsets, Commit, Restore);
+    /// <summary>Writes every HDU. The headers keep the changes of the save until the transaction is committed or rolled back.</summary>
+    private SaveTransaction WriteCore(Stream stream, ChecksumPolicy checksums, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_hdus.Count == 0)
+        {
+            new ImageHdu().Header.Write(stream);
+            return SaveTransaction.Empty;
+        }
+
+        var hdus = _hdus.ToArray();
+        var save = new SaveState(hdus);
+        var states = hdus.Select(h => checksums == ChecksumPolicy.Auto ? h.CaptureChecksumState(cancellationToken) : (false, false)).ToList();
+        try
+        {
+            save.Normalize();
+            for (int i = 0; i < hdus.Length; i++)
+                hdus[i].ApplyChecksumPolicy(checksums, SaveState.Preserve(hdus[i], states[i]), cancellationToken);
+            for (int i = 0; i < hdus.Length; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                stream.Write(save.Header(i));
+                hdus[i].Source.CopyTo(stream, cancellationToken);
+                byte[] fill = save.Fill(i);
+                if (fill.Length > 0) stream.Write(fill);
+            }
+        }
+        catch
+        {
+            save.Restore();
+            throw;
+        }
+        return save.Transaction();
+    }
+
+    /// <summary>Asynchronous version of <see cref="WriteCore"/>: the same bytes, the same rollback.</summary>
+    private async Task<SaveTransaction> WriteCoreAsync(Stream stream, ChecksumPolicy checksums, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_hdus.Count == 0)
+        {
+            await new ImageHdu().Header.WriteAsync(stream, cancellationToken).ConfigureAwait(false);
+            return SaveTransaction.Empty;
+        }
+
+        var hdus = _hdus.ToArray();   // the HDUs the save started with, whatever the caller does meanwhile
+        var save = new SaveState(hdus);
+        var states = new (bool Clean, bool AnyInvalid)[hdus.Length];
+        if (checksums == ChecksumPolicy.Auto)
+            for (int i = 0; i < hdus.Length; i++) states[i] = await hdus[i].CaptureChecksumStateAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            save.Normalize();
+            for (int i = 0; i < hdus.Length; i++)
+                await hdus[i].ApplyChecksumPolicyAsync(checksums, SaveState.Preserve(hdus[i], states[i]), cancellationToken).ConfigureAwait(false);
+            for (int i = 0; i < hdus.Length; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await stream.WriteAsync(save.Header(i), cancellationToken).ConfigureAwait(false);
+                await hdus[i].Source.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
+                byte[] fill = save.Fill(i);
+                if (fill.Length > 0) await stream.WriteAsync(fill, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            save.Restore();
+            throw;
+        }
+        return save.Transaction();
     }
 
     /// <summary>
@@ -392,35 +495,136 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
     /// </exception>
     /// <param name="path">The path of the file to write.</param>
     /// <param name="checksums">What to do with the <c>CHECKSUM</c> and <c>DATASUM</c> keywords.</param>
-    public void Save(string path, ChecksumPolicy checksums = ChecksumPolicy.Auto)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        string full = ResolvePath(path); // writing through a symbolic link updates its target
-        bool overwritingSource = _sourcePath is not null && string.Equals(full, _sourcePath,
-            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    public void Save(string path, ChecksumPolicy checksums = ChecksumPolicy.Auto) =>
+        SaveToPath(path, checksums, FitsSaveMode.Overwrite, CancellationToken.None);
 
-        string temp = full + ".tmp-" + Guid.NewGuid().ToString("N");
+    /// <summary>
+    /// Writes the file to <paramref name="path"/> as <see cref="Save(string, ChecksumPolicy)"/> does, checking
+    /// <paramref name="cancellationToken"/> between blocks of data. A cancelled save deletes its temporary file and leaves the target, the
+    /// headers and the state of the HDUs as they were. Once the temporary file is complete and is being put in place, the save is no longer
+    /// cancelled.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the file was put in place.</exception>
+    /// <exception cref="IOException">The file could not be written or put in place (see <see cref="Save(string, ChecksumPolicy)"/>).</exception>
+    /// <param name="path">The path of the file to write.</param>
+    /// <param name="checksums">What to do with the <c>CHECKSUM</c> and <c>DATASUM</c> keywords.</param>
+    /// <param name="cancellationToken">The token that cancels the save.</param>
+    public void Save(string path, ChecksumPolicy checksums, CancellationToken cancellationToken) =>
+        SaveToPath(path, checksums, FitsSaveMode.Overwrite, cancellationToken);
+
+    /// <summary>
+    /// Writes the file to <paramref name="path"/>, choosing with <paramref name="mode"/> what happens when a file already exists there.
+    /// <see cref="FitsSaveMode.Overwrite"/> is <see cref="Save(string, ChecksumPolicy, CancellationToken)"/>.
+    /// <see cref="FitsSaveMode.CreateNew"/> never replaces anything: the file is written to a temporary file in the same directory, then
+    /// moved to <paramref name="path"/> by an operation that fails if the path exists, so a file that appears while the save runs is not
+    /// replaced either (no check-then-write race; on Unix, where .NET makes this move with a hard link, on file systems that support hard
+    /// links). In that mode <paramref name="path"/> is taken as it is (a symbolic link there counts as
+    /// an existing file), and a failure, <see cref="FitsFileExistsException"/> included, leaves the headers and the state of the HDUs as
+    /// they were.
+    /// </summary>
+    /// <exception cref="FitsFileExistsException"><paramref name="mode"/> is <see cref="FitsSaveMode.CreateNew"/> and something exists at <paramref name="path"/>, before or after the file was written.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the file was put in place.</exception>
+    /// <exception cref="IOException">The file could not be written or put in place (see <see cref="Save(string, ChecksumPolicy)"/>).</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="mode"/> is not a value of <see cref="FitsSaveMode"/>.</exception>
+    /// <param name="path">The path of the file to write.</param>
+    /// <param name="checksums">What to do with the <c>CHECKSUM</c> and <c>DATASUM</c> keywords.</param>
+    /// <param name="mode">Whether an existing file may be replaced.</param>
+    /// <param name="cancellationToken">The token that cancels the save.</param>
+    public void Save(string path, ChecksumPolicy checksums, FitsSaveMode mode, CancellationToken cancellationToken = default) =>
+        SaveToPath(path, checksums, mode, cancellationToken);
+
+    /// <summary>
+    /// Writes the file to <paramref name="path"/> asynchronously, with the guarantees of
+    /// <see cref="Save(string, ChecksumPolicy, FitsSaveMode, CancellationToken)"/>: the temporary file is written with asynchronous I/O
+    /// (and the data of a lazily opened file read asynchronously), a cancelled or failed save leaves no temporary file, an existing target
+    /// untouched and the headers as they were, and <see cref="FitsSaveMode.CreateNew"/> never replaces a file. Flushing the temporary file
+    /// to the disk and moving it in place are done synchronously: the system offers no asynchronous version of them, and the flush of a large
+    /// file can take a noticeable time. Do not use the file or its HDUs until the task has completed.
+    /// </summary>
+    /// <exception cref="FitsFileExistsException"><paramref name="mode"/> is <see cref="FitsSaveMode.CreateNew"/> and something exists at <paramref name="path"/>, before or after the file was written.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the file was put in place.</exception>
+    /// <exception cref="IOException">The file could not be written or put in place (see <see cref="Save(string, ChecksumPolicy)"/>).</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="mode"/> is not a value of <see cref="FitsSaveMode"/>.</exception>
+    /// <param name="path">The path of the file to write.</param>
+    /// <param name="checksums">What to do with the <c>CHECKSUM</c> and <c>DATASUM</c> keywords.</param>
+    /// <param name="mode">Whether an existing file may be replaced.</param>
+    /// <param name="cancellationToken">A token that cancels the save.</param>
+    public async Task SaveAsync(string path, ChecksumPolicy checksums = ChecksumPolicy.Auto, FitsSaveMode mode = FitsSaveMode.Overwrite,
+        CancellationToken cancellationToken = default)
+    {
+        var target = BeginPathSave(path, mode, cancellationToken);
         SaveTransaction? written = null;
         try
         {
-            using var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16);
-            written = WriteCore(fs, checksums);
+            var fs = new FileStream(target.Temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
+            await using (fs.ConfigureAwait(false))
+            {
+                written = await WriteCoreAsync(fs, checksums, cancellationToken).ConfigureAwait(false);
+                await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
+                fs.Flush(flushToDisk: true);   // no asynchronous version: the buffer is empty, this only asks the system to write to the disk
+            }
+            cancellationToken.ThrowIfCancellationRequested(); // the last point at which the save can be cancelled
+        }
+        catch
+        {
+            written?.Rollback();   // when WriteCoreAsync itself failed it has already restored the headers, and written is null
+            TryDelete(target.Temp);
+            throw;
+        }
+        PublishSaved(target, written);
+    }
+
+    private void SaveToPath(string path, ChecksumPolicy checksums, FitsSaveMode mode, CancellationToken cancellationToken)
+    {
+        var target = BeginPathSave(path, mode, cancellationToken);
+        SaveTransaction? written = null;
+        try
+        {
+            using var fs = new FileStream(target.Temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16);
+            written = WriteCore(fs, checksums, cancellationToken);
             fs.Flush(true);
+            cancellationToken.ThrowIfCancellationRequested(); // the last point at which the save can be cancelled
         }
         catch
         {
             written?.Rollback();   // when WriteCore itself failed it has already restored the headers, and written is null
-            TryDelete(temp);
+            TryDelete(target.Temp);
             throw;
         }
-        var transaction = written;
+        PublishSaved(target, written);
+    }
 
-        if (!overwritingSource)
+    /// <summary>Where a save to a path writes, and how it puts the file in place.</summary>
+    private sealed record PathSave(string Full, string Temp, bool CreateNew, bool OverwritingSource);
+
+    private PathSave BeginPathSave(string path, FitsSaveMode mode, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (mode is not (FitsSaveMode.Overwrite or FitsSaveMode.CreateNew))
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown save mode.");
+        bool createNew = mode == FitsSaveMode.CreateNew;
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // A new file is created where the caller said, link or not; an overwrite writes through a symbolic link to its target.
+        string full = createNew ? Path.GetFullPath(path) : ResolvePath(path);
+        if (createNew && ExistsAnything(full)) throw new FitsFileExistsException(full); // an early answer only: the final move decides
+        // In CreateNew mode the source file is never the target (it exists); should it have been deleted meanwhile, the HDUs keep reading it.
+        bool overwritingSource = !createNew && _sourcePath is not null && string.Equals(full, _sourcePath,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        return new PathSave(full, full + ".tmp-" + Guid.NewGuid().ToString("N"), createNew, overwritingSource);
+    }
+
+    /// <summary>Puts the complete temporary file in place and commits the save, or rolls it back.</summary>
+    private void PublishSaved(PathSave target, SaveTransaction transaction)
+    {
+        string full = target.Full, temp = target.Temp;
+        if (!target.OverwritingSource)
         {
             try
             {
-                Publish(temp, full);
+                if (target.CreateNew) PublishNew(temp, full);
+                else Publish(temp, full);
             }
             catch
             {
@@ -495,6 +699,36 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         catch (IOException)
         {
             return full;
+        }
+    }
+
+    /// <summary>True when a file, a directory or a link (even a broken one) is at <paramref name="path"/>.</summary>
+    private static bool ExistsAnything(string path)
+    {
+        if (File.Exists(path) || Directory.Exists(path)) return true;
+        try
+        {
+            return new FileInfo(path).LinkTarget is not null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Moves the finished temporary file to a target that must not exist. The move itself refuses an existing target, atomically, so a file
+    /// created by someone else after the early check is never replaced.
+    /// </summary>
+    private static void PublishNew(string temp, string target)
+    {
+        try
+        {
+            File.Move(temp, target, overwrite: false);
+        }
+        catch (Exception e) when ((e is IOException or UnauthorizedAccessException) && ExistsAnything(target))
+        {
+            throw new FitsFileExistsException(target, e);
         }
     }
 
