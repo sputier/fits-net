@@ -17,6 +17,9 @@ internal static class HcompressCodec
     private static readonly int[] Code = [0x3e, 0x00, 0x01, 0x08, 0x02, 0x09, 0x1a, 0x1b, 0x03, 0x1c, 0x0a, 0x1d, 0x0b, 0x1e, 0x3f, 0x0c];
     private static readonly int[] CodeBits = [6, 3, 3, 4, 3, 4, 5, 5, 3, 5, 4, 5, 4, 5, 6, 4];
 
+    /// <summary>The bits of the code of a value, 0 for a zero, which has none: the sum over a level needs no test.</summary>
+    private static readonly int[] CodeBitsOfNonZero = [0, 3, 3, 4, 3, 4, 5, 5, 3, 5, 4, 5, 4, 5, 6, 4];
+
     // Direct lookup of the fixed Huffman code on 6 bits: entry = (value << 4) | code length. The code is complete, so every
     // 6-bit pattern maps to a value.
     private static readonly int[] HuffmanTable = BuildHuffmanTable();
@@ -376,13 +379,12 @@ internal static class HcompressCodec
         int nsign = 0;
         for (int i = 0; i < a.Length; i++)
         {
-            if (a[i] == 0) continue;
-            if (a[i] < 0)
-            {
-                signBits[nsign >> 3] |= (byte)(0x80 >> (nsign & 7));
-                a[i] = -a[i];
-            }
-            nsign++;
+            // without a branch (the sign of a coefficient is not predictable): a zero has no sign bit and does not count
+            long v = a[i];
+            long negative = v >> 63;   // -1 or 0
+            a[i] = (v ^ negative) - negative;
+            signBits[nsign >> 3] |= (byte)(((int)negative & 0x80) >> (nsign & 7));
+            nsign += v != 0 ? 1 : 0;
         }
 
         int nx2 = (nx + 1) / 2, ny2 = (ny + 1) / 2;
@@ -442,8 +444,10 @@ internal static class HcompressCodec
             // Quadtree coding is used unless its codes fill as many whole bytes as the direct bitmap (cfitsio's rule).
             int codeBits = 0;
             foreach (var (data, lx, ly) in levels)
-                for (int i = 0; i < lx * ly; i++)
-                    if (data[i] != 0) codeBits += CodeBits[data[i]];
+            {
+                var codes = data.AsSpan(0, lx * ly);
+                for (int i = 0; i < codes.Length; i++) codeBits += CodeBitsOfNonZero[codes[i] & 15];
+            }
             if (codeBits / 8 >= (nx0 * ny0 + 1) / 2)
             {
                 w.WriteBits(0, 4);
