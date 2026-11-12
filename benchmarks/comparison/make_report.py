@@ -4,7 +4,9 @@
 
 The Python results (results/cfitsio-N.json, results/astropy-N.json) are three passes of bench_cfitsio.py and bench_astropy.py; the best
 median of the passes is kept, because a laptop that scales its clock only ever makes a pass slower than it could be. The .NET results are
-the BenchmarkDotNet reports (results/dotnet/*-report-github.md, job MediumRun), whose Median column is used.
+the BenchmarkDotNet reports (job MediumRun), whose Median column is used: results/dotnet holds the images and the tables, and
+results/dotnet-compression/pass*/ the compression, measured in several passes of which the best median of each operation is kept (as
+for the Python results).
 The text between the markers of docs/comparison.md is replaced; the rest of the page is written by hand.
 """
 import glob
@@ -32,10 +34,10 @@ def to_ms(text):
     return float(number) * UNITS[unit]
 
 
-def dotnet_results():
-    """{(file, method, params): median in ms} from the BenchmarkDotNet markdown reports."""
+def read_reports(directory):
+    """{(file, method, params): median in ms} from the BenchmarkDotNet markdown reports of a directory."""
     table = {}
-    for path in glob.glob(os.path.join(RESULTS, "dotnet", "*-report-github.md")):
+    for path in glob.glob(os.path.join(directory, "*-report-github.md")):
         name = os.path.basename(path).split("-report")[0]
         lines = [l for l in open(path, encoding="utf-8") if l.startswith("|")]
         header = [h.strip() for h in lines[0].strip().strip("|").split("|")]
@@ -47,6 +49,14 @@ def dotnet_results():
             method = cells[0].strip("'")
             params = tuple(cells[first_param:last_param])
             table[(name, method, params)] = to_ms(cells[median])
+    return table
+
+
+def dotnet_results():
+    table = read_reports(os.path.join(RESULTS, "dotnet"))
+    passes = [read_reports(d) for d in sorted(glob.glob(os.path.join(RESULTS, "dotnet-compression", "pass*")))]
+    for key in {k for one in passes for k in one}:
+        table[key] = min(one[key] for one in passes if key in one)
     return table
 
 
@@ -91,7 +101,7 @@ def table(title, rows, note=None):
     return "\n".join(out) + "\n"
 
 
-IO, COMP, FLOAT = "ImageIoBenchmarks", "CompressionBenchmarks", "FloatCompressionBenchmarks"
+IO, COMP, FLOAT, GZL = "ImageIoBenchmarks", "CompressionBenchmarks", "FloatCompressionBenchmarks", "GzipLevelBenchmarks"
 BIN, ASC = "BinaryTableBenchmarks", "AsciiTableBenchmarks"
 
 images = table("Images: reading, cutouts, writing, checksums (one 3536 × 3536 frame, 25 MB)", [
@@ -113,6 +123,10 @@ def compression_rows(parallelism):
     for label, algo, key in [("Rice", "Rice", "Rice"), ("GZIP_1", "Gzip1", "Gzip1"), ("GZIP_2", "Gzip2", "Gzip2"), ("HCOMPRESS", "HCompress", "HCompress")]:
         rows.append((f"Compress {label}", net(COMP, "Compress", algo, parallelism), CF[f"Compress {key} (ushort, to a file)"], AP[f"Compress {key} (ushort, to memory)"]))
         rows.append((f"Decompress {label}", net(COMP, "Decompress to ushort", algo, parallelism), CF[f"Decompress {key} to ushort"], AP[f"Decompress {key} to ushort"]))
+    for label, algo in [("GZIP_1", "Gzip1"), ("GZIP_2", "Gzip2")]:
+        if (GZL, "Compress", (algo, "2", str(parallelism))) not in NET: continue   # measured with the zlib level option only
+        rows.append((f"Compress {label}, `GzipLevel = 2`", net(GZL, "Compress", algo, 2, parallelism),
+                     CF[f"Compress {algo} (ushort, to a file)"], AP[f"Compress {algo} (ushort, to memory)"]))
     q = "SubtractiveDither1"
     rows.append(("Compress `float32` (Rice, dither 1)", net(FLOAT, "Compress float32", q, parallelism), CF["Compress float32 (Rice, SUBTRACTIVE_DITHER_1)"], AP["Compress float32 (Rice, SUBTRACTIVE_DITHER_1)"]))
     rows.append(("Decompress `float32` (Rice, dither 1)", net(FLOAT, "Decompress float32", q, parallelism), CF["Decompress float32 (Rice, SUBTRACTIVE_DITHER_1)"], AP["Decompress float32 (Rice, SUBTRACTIVE_DITHER_1)"]))
