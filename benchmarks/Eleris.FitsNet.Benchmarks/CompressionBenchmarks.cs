@@ -80,6 +80,39 @@ public class FloatCompressionBenchmarks
     public int Decompress() => _compressed.Decompress(Parallelism).ReadPixels<float>().Length;
 }
 
+/// <summary>
+/// The zlib level of GZIP_1 and GZIP_2 (<see cref="CompressionOptions.GzipLevel"/>): the default of the runtime, which compresses best,
+/// and level 2, which gives files about as large as cfitsio's. The size of the data is printed once at the start of the run.
+/// </summary>
+[Config(typeof(FitsConfig))]
+public class GzipLevelBenchmarks
+{
+    private ImageHdu _image = null!;
+
+    [Params(CompressionAlgorithm.Gzip1, CompressionAlgorithm.Gzip2)]
+    public CompressionAlgorithm Algorithm { get; set; }
+
+    /// <summary>-1 is the default level.</summary>
+    [Params(-1, 2)]
+    public int Level { get; set; }
+
+    /// <summary>1 = sequential, -1 = one tile per core at a time.</summary>
+    [Params(1, -1)]
+    public int Parallelism { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        using var f = FitsFile.Open(BenchmarkData.Path(BenchmarkData.Broadband));
+        var original = (ImageHdu)f.Primary;
+        _image = ImageHdu.Create<ushort>(original.ReadPixels<ushort>(), BenchmarkData.Size, BenchmarkData.Size);
+        if (Parallelism == 1) Console.WriteLine($"// {Algorithm}, level {Level}: {Compress() / 1e6:F2} MB");
+    }
+
+    [Benchmark(Description = "Compress")]
+    public long Compress() => _image.Compress(new CompressionOptions { Algorithm = Algorithm, GzipLevel = Level, MaxDegreeOfParallelism = Parallelism }).DataLength;
+}
+
 /// <summary>PLIO on a mask (long runs of equal values), the case the algorithm was made for.</summary>
 [Config(typeof(FitsConfig))]
 public class PlioBenchmarks
