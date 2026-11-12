@@ -105,6 +105,29 @@ public static class ImageExamples
         #endregion
     }
 
+    public static void Bands()
+    {
+        #region Example:Images.Bands
+        // An image computed 64 rows at a time and never held whole in memory: a mosaic, for example.
+        const int width = 1000, height = 750, bandHeight = 64;
+        var header = new FitsHeader()
+            .Set("BITPIX", -32).Set("NAXIS", 2).Set("NAXIS1", width).Set("NAXIS2", height)
+            .Set("OBJECT", "M42 mosaic");
+
+        // The rows go to a temporary file; the file appears at its path only when Complete succeeds.
+        using var writer = FitsImageWriter<float>.Create("mosaic.fits", header, ChecksumPolicy.Always, FitsSaveMode.CreateNew);
+        var band = new float[width * bandHeight];
+        for (int row = 0; row < height; row += bandHeight)
+        {
+            int rows = Math.Min(bandHeight, height - row);
+            Span<float> values = band.AsSpan(0, rows * width);
+            for (int i = 0; i < values.Length; i++) values[i] = row + i / width;   // compute the rows of the band here
+            writer.WriteRows(plane: 0, firstRow: row, values);
+        }
+        writer.Complete();
+        #endregion
+    }
+
     public static void RandomGroups()
     {
         #region Example:Images.RandomGroups

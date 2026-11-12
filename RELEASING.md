@@ -53,5 +53,5 @@ A published version cannot be replaced. It can only be *unlisted* on nuget.org, 
 
 ## After a publication
 
-* `<PackageValidationBaselineVersion>` in the project is the last published version (`0.1.0`, on nuget.org since 2026-11-09):
+* `<PackageValidationBaselineVersion>` in the project is the last published version (`0.2.0`, on nuget.org since 2026-11-10):
   `dotnet pack` fails on any API break against it. After a publication, set it to the version just published.

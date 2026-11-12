@@ -53,6 +53,36 @@ new FitsFile().Add(color).Save("color.fits");
 
 The planes are not copied, not even into the bytes of the file: they are converted, a block at a time, each time the data is needed, which is when the file is saved, its checksums computed or its pixels read. The image keeps them after a save. So they must stay valid and unchanged as long as the image uses them, until it is discarded or `SetPixels<T>` has replaced its data: do not return a pooled buffer before, and do not change a plane during a save, which reads the planes once for the checksums and once for the file. A large cube is then held in memory once, in the buffers you already have. An array of arrays converts to the list of planes with `[.. planes.Select(p => (ReadOnlyMemory<float>)p)]`.
 
+### Band by band
+
+An image larger than the memory, or computed a few rows at a time, is written with a [`FitsImageWriter<T>`](api/Eleris.FitsNet.FitsImageWriter-1.md) instead: the header is given first, then the rows, a band of consecutive rows at a time, and the image never exists in memory as a whole. A row is `NAXIS1` values, a plane is `NAXIS2` rows, and the planes follow (the `NAXIS3` planes of a cube). The bands are given in the order of the file, plane 0 from its first row to its last, then plane 1, and so on; a band can have any number of rows of one plane. `Complete` then publishes the file.
+
+<!-- example: Images.Bands -->
+```csharp
+// An image computed 64 rows at a time and never held whole in memory: a mosaic, for example.
+const int width = 1000, height = 750, bandHeight = 64;
+var header = new FitsHeader()
+    .Set("BITPIX", -32).Set("NAXIS", 2).Set("NAXIS1", width).Set("NAXIS2", height)
+    .Set("OBJECT", "M42 mosaic");
+
+// The rows go to a temporary file; the file appears at its path only when Complete succeeds.
+using var writer = FitsImageWriter<float>.Create("mosaic.fits", header, ChecksumPolicy.Always, FitsSaveMode.CreateNew);
+var band = new float[width * bandHeight];
+for (int row = 0; row < height; row += bandHeight)
+{
+    int rows = Math.Min(bandHeight, height - row);
+    Span<float> values = band.AsSpan(0, rows * width);
+    for (int i = 0; i < values.Length; i++) values[i] = row + i / width;   // compute the rows of the band here
+    writer.WriteRows(plane: 0, firstRow: row, values);
+}
+writer.Complete();
+```
+<!-- /example -->
+
+The header holds `BITPIX`, `NAXIS` and the axes, and any other card, written as given: `BSCALE`, `BZERO`, `BLANK`, a WCS. `SIMPLE` may be left out, and the header of an image you have, `image.Header`, can be given as it is. `BITPIX` must be the one of the type of the values, as in the table above, and the values are the stored ones: for `sbyte`, `ushort`, `uint` and `ulong` the header must have the `BZERO` of the convention, which `ImageHdu.Create<T>` writes. The file is byte for byte the one `Save` writes for an image of the same header and pixels, `CHECKSUM` and `DATASUM` included: they are summed while the rows are written, and filled in before the file is published. They are always computed for the rows given: sums already in the header are replaced (with `ChecksumPolicy.Auto`) or removed (with `Never`), never kept.
+
+The guarantees are those of [saving to a path](files.md#saving): the file is written to a temporary file next to the target, which is only replaced, or in `FitsSaveMode.CreateNew` mode only created, by `Complete` (with the limits that [`CreateNew`](files.md#never-replace-a-file) has on Linux and macOS). Unlike `Save`, the writer cannot attach an open `FitsFile` to the new file: do not write over a file that a `FitsFile` is reading. Rows out of order, a band that is not whole rows or that goes past the end of its plane, and a `Complete` with rows missing throw an exception. Any exception, a cancellation through the `CancellationToken` of `WriteRows` or `Complete` included, abandons the write: the temporary file is deleted, an existing target is left as it was, and the writer can no longer be used. So does disposing of the writer before `Complete`. The writer keeps no band: each one is converted to the bytes of the file through a buffer of 256 KB, so the memory it uses does not depend on the number of rows. Writing a 32 MB image this way allocates about 100 KB.
+
 ## Read pixels
 
 Two methods read the whole data:

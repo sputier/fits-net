@@ -445,7 +445,7 @@ public sealed class ImageHdu : Hdu
     /// How pixels of type <typeparamref name="T"/> are stored: the BITPIX, the BZERO of the unsigned conventions, and whether the top bit of
     /// each value is flipped to store it (the same as subtracting that BZERO). Must agree with <see cref="Encode{T}"/>.
     /// </summary>
-    private static (BitPix BitPix, object? BZero, bool FlipTopBit) Describe<T>() where T : unmanaged
+    internal static (BitPix BitPix, object? BZero, bool FlipTopBit) Describe<T>() where T : unmanaged
     {
         if (typeof(T) == typeof(byte)) return (BitPix.Byte, null, false);
         if (typeof(T) == typeof(sbyte)) return (BitPix.Byte, -128L, true);
