@@ -20,6 +20,7 @@ Every public type of the library, by namespace. The pages are generated from the
 | [`FitsFile`](Eleris.FitsNet.FitsFile.md) | class | A FITS file: a primary HDU followed by zero or more extensions. |
 | [`FitsFileExistsException`](Eleris.FitsNet.FitsFileExistsException.md) | class | Thrown by a save in [`FitsSaveMode.CreateNew`](Eleris.FitsNet.FitsSaveMode.md#eleris-fitsnet-fitssavemode-createnew) mode when something already exists at the target path. |
 | [`FitsHeader`](Eleris.FitsNet.FitsHeader.md) | class | An ordered collection of header cards (without the END card, which is implicit). |
+| [`FitsImageWriter<T>`](Eleris.FitsNet.FitsImageWriter-1.md) | class | Writes a FITS file that holds one image, band by band, so that the image never has to be in memory: for images larger than the memory, or computed a few rows at a time (a mosaic, a stack). |
 | [`FitsMimeTypes`](Eleris.FitsNet.FitsMimeTypes.md) | class | The MIME types of Appendix G of the standard (RFC 4047). |
 | [`FitsReadOptions`](Eleris.FitsNet.FitsReadOptions.md) | record | Options controlling how strictly files are parsed. |
 | [`FitsSaveMode`](Eleris.FitsNet.FitsSaveMode.md) | enum | What [`FitsFile.Save`](Eleris.FitsNet.FitsFile.md#eleris-fitsnet-fitsfile-save-system-string-eleris-fitsnet-checksumpolicy-eleris-fitsnet-fitssavemode-system-threading-cancellationtoken) does when a file already exists at the path. |

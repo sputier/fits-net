@@ -69,6 +69,28 @@ with warnings.catch_warnings():
         assert h[0].data.dtype == np.dtype('>f4') and np.array_equal(h[0].data, cube), "float cube written plane by plane"
         u16 = np.stack([(p * 20000 + i * 7) % 65536 for p in range(3)]).astype(np.uint16).reshape(3, 23, 37)
         assert h[1].data.dtype == np.uint16 and np.array_equal(h[1].data, u16), "uint16 cube written plane by plane"
+with warnings.catch_warnings():
+    warnings.simplefilter('error')
+    i = np.arange(37 * 23)
+    for name in ("streamed_f32", "streamed_i16", "streamed_u16"):
+        with fits.open(f"{d}/{name}.fits", checksum=True) as h:
+            h.verify('exception')
+            assert len(h) == 1, (name, len(h))
+            assert h[0].verify_checksum() == 1, f"CHECKSUM of {name}"
+            assert h[0].verify_datasum() == 1, f"DATASUM of {name}"
+    with fits.open(f"{d}/streamed_f32.fits") as h:
+        cube = np.stack([p * 1000 + i * 0.25 for p in range(3)]).astype(np.float32).reshape(3, 23, 37)
+        cube[1].flat[5] = np.nan
+        assert h[0].header['OBJECT'] == 'M42'
+        assert np.array_equal(h[0].data, cube, equal_nan=True), "float cube written band by band"
+    with fits.open(f"{d}/streamed_i16.fits") as h:
+        stored = np.array([-32768 if k == 40 else k * 13 - 5000 for k in i], dtype=np.int16)
+        expected = (100 + 0.5 * stored.astype(np.float64)).reshape(23, 37)
+        expected.flat[40] = np.nan
+        assert np.allclose(h[0].data, expected, equal_nan=True), "scaled int16 image written band by band"
+    with fits.open(f"{d}/streamed_u16.fits") as h:
+        u16 = np.stack([(p * 20000 + i * 7) % 65536 for p in range(3)]).astype(np.uint16).reshape(3, 23, 37)
+        assert h[0].data.dtype == np.uint16 and np.array_equal(h[0].data, u16), "uint16 cube written band by band"
 import math
 n = 37 * 23
 ramp = np.array([((i * 31) % 4000 - 2000 + (i % 7)) for i in range(n)], dtype=np.int16).reshape(23, 37)

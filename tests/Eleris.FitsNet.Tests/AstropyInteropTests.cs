@@ -205,6 +205,16 @@ public class AstropyInteropTests
                 .Add(ImageHdu.CreateFromPlanes<ushort>(Planes.AsMemory(u16Planes), 37, 23, 3))
                 .Save(Path.Combine(dir, "planes.fits"), ChecksumPolicy.Always, FitsSaveMode.CreateNew);
 
+            // Written band by band: a float cube with a NaN, an int16 image with BSCALE / BZERO / BLANK, an unsigned 16-bit cube, all with checksums.
+            floatPlanes[1][5] = float.NaN;
+            StreamedWriteTests.Stream(Path.Combine(dir, "streamed_f32.fits"),
+                ImageHdu.Create<float>(Planes.Concat(floatPlanes), 37, 23, 3).Header.Set("OBJECT", "M42"), floatPlanes, 37, 5, ChecksumPolicy.Always);
+            short[] scaled = [.. Enumerable.Range(0, 37 * 23).Select(i => i == 40 ? short.MinValue : (short)(i * 13 - 5000))];
+            var scaledHeader = ImageHdu.Create<short>(scaled, 37, 23).Header.Set("BSCALE", 0.5).Set("BZERO", 100.0).Set("BLANK", -32768L);
+            StreamedWriteTests.Stream(Path.Combine(dir, "streamed_i16.fits"), scaledHeader, [scaled], 37, 1, ChecksumPolicy.Always);
+            StreamedWriteTests.Stream(Path.Combine(dir, "streamed_u16.fits"), ImageHdu.Create<ushort>(Planes.Concat(u16Planes), 37, 23, 3).Header,
+                u16Planes, 37, 23, ChecksumPolicy.Always, FitsSaveMode.CreateNew);
+
             WriteCompressed(dir);
 
             var (exit, output) = Python(ToolPath("verify_with_astropy.py"), dir);

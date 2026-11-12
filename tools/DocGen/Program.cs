@@ -108,7 +108,8 @@ namespace DocGen
 
         // ---- Identifiers and pages --------------------------------------------------------------------------------
 
-        private static string PageName(Type t) => $"{t.Namespace}.{t.Name}.md";
+        // A generic type is named Type`1: the backtick, which Markdown links do not like, becomes a hyphen (FitsImageWriter-1.md).
+        private static string PageName(Type t) => $"{t.Namespace}.{t.Name.Replace('`', '-')}.md";
 
         private Dictionary<string, string> IndexPages(List<Type> types)
         {
@@ -410,7 +411,8 @@ namespace DocGen
                 foreach (var t in group)
                 {
                     string summary = _md.OneLine(Doc(Signatures.IdOfType(t), null)?.Element("summary"), "index.md");
-                    sb.Append($"| [`{Signatures.TypeName(t).Replace("<", "&lt;").Replace(">", "&gt;")}`]({PageName(t)}) | {Signatures.Kind(t)} | {summary} |\n");
+                    // in a code span the name is shown as written: an entity (&lt;) would be shown literally
+                    sb.Append($"| [`{Signatures.TypeName(t)}`]({PageName(t)}) | {Signatures.Kind(t)} | {summary} |\n");
                 }
                 sb.Append('\n');
             }

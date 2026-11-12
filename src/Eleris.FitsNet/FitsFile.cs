@@ -608,13 +608,30 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         bool createNew = mode == FitsSaveMode.CreateNew;
         cancellationToken.ThrowIfCancellationRequested();
 
-        // A new file is created where the caller said, link or not; an overwrite writes through a symbolic link to its target.
-        string full = createNew ? Path.GetFullPath(path) : ResolvePath(path);
-        if (createNew && ExistsAnything(full)) throw new FitsFileExistsException(full); // an early answer only: the final move decides
+        var (full, temp) = SaveTarget(path, createNew);
         // In CreateNew mode the source file is never the target (it exists); should it have been deleted meanwhile, the HDUs keep reading it.
         bool overwritingSource = !createNew && _sourcePath is not null && string.Equals(full, _sourcePath,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-        return new PathSave(full, full + ".tmp-" + Guid.NewGuid().ToString("N"), createNew, overwritingSource);
+        return new PathSave(full, temp, createNew, overwritingSource);
+    }
+
+    /// <summary>
+    /// The path a save writes and the temporary file it writes first, next to it (shared with <see cref="FitsImageWriter{T}"/>). A new file
+    /// is created where the caller said, link or not; an overwrite writes through a symbolic link to its target.
+    /// </summary>
+    /// <exception cref="FitsFileExistsException"><paramref name="createNew"/> is set and something is at the path already.</exception>
+    internal static (string Full, string Temp) SaveTarget(string path, bool createNew)
+    {
+        string full = createNew ? Path.GetFullPath(path) : ResolvePath(path);
+        if (createNew && ExistsAnything(full)) throw new FitsFileExistsException(full); // an early answer only: the final move decides
+        return (full, full + ".tmp-" + Guid.NewGuid().ToString("N"));
+    }
+
+    /// <summary>Puts a complete temporary file in place: <see cref="PublishNew"/> for a new file, else over the target.</summary>
+    internal static void PublishTemporary(string temp, string target, bool createNew)
+    {
+        if (createNew) PublishNew(temp, target);
+        else Publish(temp, target);
     }
 
     /// <summary>Puts the complete temporary file in place and commits the save, or rolls it back.</summary>
@@ -625,8 +642,7 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         {
             try
             {
-                if (target.CreateNew) PublishNew(temp, full);
-                else Publish(temp, full);
+                PublishTemporary(temp, full, target.CreateNew);
             }
             catch
             {
@@ -673,7 +689,7 @@ public sealed class FitsFile : IReadOnlyList<Hdu>, IDisposable
         }
     }
 
-    private static void TryDelete(string path)
+    internal static void TryDelete(string path)
     {
         try
         {
