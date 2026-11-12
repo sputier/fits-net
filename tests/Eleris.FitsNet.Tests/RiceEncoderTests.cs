@@ -60,6 +60,22 @@ public class RiceEncoderTests
     }
 
     [Fact]
+    public void Tiles_compressed_on_all_the_cores_give_the_same_bytes_as_on_one()
+    {
+        var rng = new Random(8);
+        var pixels = new ushort[1800 * 60];
+        for (int i = 0; i < pixels.Length; i++) pixels[i] = (ushort)(2000 + 500 * Math.Sin(i / 311.0) + rng.Next(-40, 41));
+        var image = ImageHdu.Create<ushort>(pixels, 1800, 60);
+        foreach (var algorithm in new[] { CompressionAlgorithm.Rice, CompressionAlgorithm.HCompress, CompressionAlgorithm.Gzip2 })
+        {
+            var one = image.Compress(new CompressionOptions { Algorithm = algorithm, MaxDegreeOfParallelism = 1 });
+            var all = image.Compress(new CompressionOptions { Algorithm = algorithm, MaxDegreeOfParallelism = -1 });
+            Assert.Equal(one.Source.ReadAll(), all.Source.ReadAll());
+            Assert.Equal(pixels, all.Decompress(1).ReadPixels<ushort>());
+        }
+    }
+
+    [Fact]
     public void A_block_larger_than_the_data_or_than_a_million_values_is_encoded_like_the_first_encoder()
     {
         var rng = new Random(4);
