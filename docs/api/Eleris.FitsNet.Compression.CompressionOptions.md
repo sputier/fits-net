@@ -22,6 +22,7 @@ public sealed class CompressionOptions
 | --- | --- |
 | [`Algorithm`](#eleris-fitsnet-compression-compressionoptions-algorithm) | The algorithm (default [`CompressionAlgorithm.Rice`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-rice)). |
 | [`DitherSeed`](#eleris-fitsnet-compression-compressionoptions-ditherseed) | Seed of the dithering sequence, 1 to 10000 (ZDITHER0). |
+| [`GzipLevel`](#eleris-fitsnet-compression-compressionoptions-gziplevel) | The zlib level of [`CompressionAlgorithm.Gzip1`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip1) and [`CompressionAlgorithm.Gzip2`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip2), 0 (stored) to 9 (smallest): -1 (default) for the default level of the runtime, which compresses well and takes its time. |
 | [`HCompressScale`](#eleris-fitsnet-compression-compressionoptions-hcompressscale) | HCOMPRESS scale: 0 for lossless integer compression, a positive value to divide the transformed coefficients by that number, a negative value `-n` for a scale of `n` times the noise of the tile (floating point data). |
 | [`MaxDegreeOfParallelism`](#eleris-fitsnet-compression-compressionoptions-maxdegreeofparallelism) | Maximum number of tiles compressed at the same time: -1 (default) for one per processor core, 1 for sequential, or a positive number. |
 | [`Quantization`](#eleris-fitsnet-compression-compressionoptions-quantization) | How floating point pixels are quantized (default subtractive dithering, as cfitsio does). |
@@ -58,6 +59,15 @@ Seed of the dithering sequence, 1 to 10000 (ZDITHER0).
 
 ```csharp
 public int DitherSeed { get; set; }
+```
+
+<a id="eleris-fitsnet-compression-compressionoptions-gziplevel"></a>
+### `GzipLevel`
+
+The zlib level of [`CompressionAlgorithm.Gzip1`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip1) and [`CompressionAlgorithm.Gzip2`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip2), 0 (stored) to 9 (smallest): -1 (default) for the default level of the runtime, which compresses well and takes its time. The files are valid at every level and are read the same way. From .NET 9 every level can be chosen: level 2 gives files about as large as cfitsio's (whose level is 6, another implementation of it) in about the same time. On .NET 8 only 0, 1 and 9 differ from the default. The level is ignored by the other algorithms, and by the compression of tables ([`CompressedTableOptions`](Eleris.FitsNet.Compression.CompressedTableOptions.md)), which uses the default.
+
+```csharp
+public int GzipLevel { get; set; }
 ```
 
 <a id="eleris-fitsnet-compression-compressionoptions-hcompressscale"></a>

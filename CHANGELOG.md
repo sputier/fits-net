@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Faster tile compression on one core, which closes the gaps measured against cfitsio (`docs/comparison.md`). The files written are the
+same as before, byte for byte, except where noted.
+
+- Rice compression is about 2 to 3 times faster (16-bit and 32-bit pixels), Rice decompression 1.2 to 1.4 times, the dequantization of
+  floating point images about 4 times, and `HCOMPRESS` compression 1.2 to 1.4 times, measured with the old and the new code in the
+  same process. The tests keep the first encoder, decoder, bit writer and dequantization as references and check that the bytes and
+  the values are the same.
+- `CompressionOptions.GzipLevel` chooses the zlib level of `GZIP_1` and `GZIP_2` (default -1: the same data as before). From .NET 9,
+  level 2 gives files about as large as cfitsio's in about the same time; the default level compresses about 6 percent better and takes
+  longer. The level is ignored for tables.
+- Rice data with an FS code that no encoder writes (it can only be damaged data, for 4-byte pixels) is refused with a `FitsException`;
+  it used to give pixels that depended on an overflow.
+
 ## 0.2.0
 
 Additions only: the API and the behaviour of 0.1.0 are unchanged (checked by package validation against 0.1.0).
