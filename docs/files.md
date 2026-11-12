@@ -113,6 +113,8 @@ A failed save throws an `IOException` and leaves the headers and the state of th
 
 A file that is read and saved without a change is written back byte for byte, including the cards and comments as they were written.
 
+An image too large for the memory is written band by band with a [`FitsImageWriter<T>`](api/Eleris.FitsNet.FitsImageWriter-1.md), with the guarantees of a save to a path described here, `CreateNew` and cancellation included (see [Band by band](images.md#band-by-band)).
+
 ### Never replace a file
 
 `Save(path, checksums, FitsSaveMode.CreateNew)` refuses to replace anything. When something exists at the path, the save throws a [`FitsFileExistsException`](api/Eleris.FitsNet.FitsFileExistsException.md), an `IOException` that gives the path in `FileName`. The check is not a test made before writing, which another program could beat: the temporary file is put in place by an operation that fails if the path exists. A file created by someone else while the save runs is therefore kept, and the save fails; of several `CreateNew` saves that race for the same path, exactly one succeeds. On Windows this operation is the move of the temporary file itself. On Linux and macOS, where the move of .NET checks the path then renames, which would replace a file created in between, the path is first claimed by an exclusive creation (`O_CREAT | O_EXCL`), which only one program can win, then the temporary file is renamed over the claim. Limits remain there:

@@ -154,7 +154,7 @@ public abstract class Hdu
     }
 
     /// <summary>Removes the keywords for <see cref="ChecksumPolicy.Never"/>; returns true when they must be computed.</summary>
-    private bool PrepareChecksums(ChecksumPolicy policy, bool preserve)
+    internal bool PrepareChecksums(ChecksumPolicy policy, bool preserve)
     {
         bool has = Header.Contains("CHECKSUM") || Header.Contains("DATASUM");
         if (policy == ChecksumPolicy.Never)
@@ -166,7 +166,8 @@ public abstract class Hdu
         return !(policy == ChecksumPolicy.Auto && (!has || preserve));
     }
 
-    private void SetChecksums(uint dataSum)
+    /// <summary>Writes DATASUM and the CHECKSUM of the current header with that data sum (fixed-width cards: the header keeps its length).</summary>
+    internal void SetChecksums(uint dataSum)
     {
         Header.Set("DATASUM", Checksum.ToDecimal(dataSum), "data unit checksum");
         Header.Set("CHECKSUM", new string('0', 16), "HDU checksum");

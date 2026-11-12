@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+Additions only: the API and the behaviour of 0.2.0 are unchanged (checked by package validation against 0.2.0).
+
+- `FitsImageWriter<T>` writes a file holding one image band by band, for images larger than the memory or computed a few rows at a
+  time: `Create(path, header, checksums, mode, cancellationToken)` takes the header (`BITPIX`, the axes and any other card), then
+  `WriteRows(plane, firstRow, rows)` takes the rows in file order, a band of whole rows of one plane at a time, and `Complete()`
+  publishes the file. The writer keeps no band: each one is converted through a buffer of 256 KB, so its memory does not grow with the
+  image. The file is byte for byte the one `FitsFile.Save` writes for the same header and pixels, `CHECKSUM` and `DATASUM` included
+  (summed while the rows are written and filled in before publication), with the guarantees of a save to a path: a temporary file
+  moved in place by `Complete`, `FitsSaveMode.CreateNew` never replacing a file, and a write that fails, is cancelled or is disposed of
+  before `Complete` leaving no file and an existing target untouched. Rows out of order, bands of the wrong length, extra or missing
+  rows are refused with an exception, and nothing is published.
+
 ## 0.2.0
 
 Additions only: the API and the behaviour of 0.1.0 are unchanged (checked by package validation against 0.1.0).

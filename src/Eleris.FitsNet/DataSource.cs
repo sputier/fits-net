@@ -379,10 +379,16 @@ internal sealed class PlaneDataSource<T> : DataSource where T : unmanaged
     }
 
     /// <summary>The big-endian bytes of <paramref name="values"/> into <paramref name="destination"/>, as <see cref="ImageHdu.Encode{T}"/> writes them.</summary>
-    private void Encode(ReadOnlySpan<T> values, Span<byte> destination)
+    private void Encode(ReadOnlySpan<T> values, Span<byte> destination) => Encode(values, destination, _flipTopBit);
+
+    /// <summary>
+    /// The big-endian bytes of <paramref name="values"/> into <paramref name="destination"/>, the top bit flipped for the types of the
+    /// <c>BZERO</c> convention: the conversion of every write of native values (planes, and the bands of <see cref="FitsImageWriter{T}"/>).
+    /// </summary>
+    internal static void Encode(ReadOnlySpan<T> values, Span<byte> destination, bool flipTopBit)
     {
         BigEndian.Write(values, destination);
-        if (_flipTopBit) BigEndian.FlipTopBits(destination, _size);
+        if (flipTopBit) BigEndian.FlipTopBits(destination, System.Runtime.CompilerServices.Unsafe.SizeOf<T>());
     }
 
     public override void ReadRange(long offset, Span<byte> destination)

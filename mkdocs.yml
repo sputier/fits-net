@@ -56,6 +56,7 @@ nav:
       - "FitsFile": api/Eleris.FitsNet.FitsFile.md
       - "FitsFileExistsException": api/Eleris.FitsNet.FitsFileExistsException.md
       - "FitsHeader": api/Eleris.FitsNet.FitsHeader.md
+      - "FitsImageWriter<T>": api/Eleris.FitsNet.FitsImageWriter-1.md
       - "FitsMimeTypes": api/Eleris.FitsNet.FitsMimeTypes.md
       - "FitsReadOptions": api/Eleris.FitsNet.FitsReadOptions.md
       - "FitsSaveMode": api/Eleris.FitsNet.FitsSaveMode.md

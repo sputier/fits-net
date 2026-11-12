@@ -61,6 +61,22 @@ new FitsFile().Add(image).Save(path);
 using var file = FitsFile.Open(path);
 var read = (ImageHdu)file.Primary;
 if (read.ReadPixels<short>()[11] != 12 || read.Header.Get<string>("OBJECT") != "M42") return 1;
+
+// 0.3.0: an image written band by band is the file Save writes for the same header and pixels
+var streamed = Path.Combine(AppContext.BaseDirectory, "streamed.fits");
+File.Delete(streamed);
+using (var writer = FitsImageWriter<short>.Create(streamed, image.Header, ChecksumPolicy.Always, FitsSaveMode.CreateNew))
+{
+    short[] pixels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    writer.WriteRows(0, 0, pixels.AsSpan(0, 8));
+    writer.WriteRows(0, 2, pixels.AsSpan(8, 4));
+    writer.Complete();
+}
+var again = ImageHdu.Create<short>([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 4, 3);
+again.Header.Set("OBJECT", "M42");
+using var saved = new MemoryStream();
+new FitsFile().Add(again).Save(saved, ChecksumPolicy.Always);
+if (!File.ReadAllBytes(streamed).AsSpan().SequenceEqual(saved.ToArray())) return 2;
 Console.WriteLine("package OK on " + System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
 return 0;
 """
