@@ -59,7 +59,7 @@ The compressed HDU is an extension: the file needs a primary HDU before it, and 
 
 Invalid values throw an `ArgumentException` when compressing, before any work is done.
 
-`Gzip1` and `Gzip2` take their time at the default level: it gives smaller files than cfitsio does (about 6 percent smaller for `Gzip2` on a 16-bit camera frame), in about twice the time of cfitsio on one core. From .NET 9, `GzipLevel = 2` gives files about as large as cfitsio's in about the same time, and a higher level trades time for size. All levels give valid files, read the same way by every library. On .NET 8 only 0 (stored), 1 (the fastest) and 9 (the smallest) differ from the default. The tiles are compressed on all the cores unless `MaxDegreeOfParallelism` says otherwise, which also divides the time.
+`Gzip1` and `Gzip2` take their time at the default level: it gives smaller files than cfitsio does (about 6 percent smaller for `Gzip2` on a 16-bit camera frame), in about twice the time of cfitsio on one core. From .NET 9, `GzipLevel = 2` gives files about as large as cfitsio's in about the same time, and a higher level trades time for size. All levels give valid files, read the same way by every library. On .NET 8 only 0 (stored), 1 (the fastest) and 9 (the smallest) differ from the default. The level is ignored by the other algorithms and by the compression of tables, which uses the default. The tiles are compressed on all the cores unless `MaxDegreeOfParallelism` says otherwise, which also divides the time.
 
 ## Read a compressed image
 

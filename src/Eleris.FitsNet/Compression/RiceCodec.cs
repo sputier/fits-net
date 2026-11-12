@@ -101,7 +101,7 @@ internal static class RiceCodec
             _bits = 0;
         }
 
-        /// <summary>Tops the window up to at least 56 bits, or to the end of the data.</summary>
+        /// <summary>Tops the window up to 56 to 63 bits, or to the end of the data: never 64, so that no shift is by the whole window.</summary>
         private void Refill()
         {
             if (_pos <= _data.Length - 8)
@@ -113,7 +113,7 @@ internal static class RiceCodec
             }
             else
             {
-                for (; _bits <= 56 && _pos < _data.Length; _bits += 8) _acc |= (ulong)_data[_pos++] << (56 - _bits);
+                for (; _bits <= 55 && _pos < _data.Length; _bits += 8) _acc |= (ulong)_data[_pos++] << (56 - _bits);
             }
         }
 
@@ -201,11 +201,13 @@ internal static class RiceCodec
         if (pixels.Length == 0) return [];
 
         int blockLength = Math.Min(blockSize, pixels.Length);
-        uint[]? rented = blockLength > 256 ? ArrayPool<uint>.Shared.Rent(blockLength) : null;
-        Span<uint> diff = rented is null ? stackalloc uint[blockLength] : rented.AsSpan(0, blockLength);
-        var sink = new BitSink(Math.Min(pixels.Length * bytePix / 2 + 64, 1 << 26));
+        uint[]? rented = null;
+        var sink = default(BitSink);
         try
         {
+            sink = new BitSink((int)Math.Min((long)pixels.Length * bytePix / 2 + 64, 1 << 26));
+            if (blockLength > 256) rented = ArrayPool<uint>.Shared.Rent(blockLength);
+            Span<uint> diff = rented is null ? stackalloc uint[blockLength] : rented.AsSpan(0, blockLength);
             uint lastpix = (uint)pixels[0] & mask;
             sink.Write(lastpix, 8 * bytePix);
 
@@ -271,9 +273,9 @@ internal static class RiceCodec
                     for (int j = 0; j < n; j++)
                     {
                         uint v = diff[j];
-                        int quotient = (int)(v >> fs);
+                        uint quotient = v >> fs;
                         // the unary code of the quotient (that many zeros and a one) then the fs low bits are one number of that many bits
-                        if (quotient + 1 + fs <= 32) sink.Write(high | (v & lowMask), quotient + 1 + fs);
+                        if (quotient <= (uint)(31 - fs)) sink.Write(high | (v & lowMask), (int)quotient + 1 + fs);
                         else sink.WriteLong(quotient, fs, v & lowMask);
                     }
                 }
@@ -339,10 +341,10 @@ internal static class RiceCodec
         }
 
         /// <summary>A quotient of 8 or more with its low bits can need more than 32 bits: the zeros by 32, then the one and the low bits.</summary>
-        public void WriteLong(int zeros, int lowBits, uint low)
+        public void WriteLong(uint zeros, int lowBits, uint low)
         {
             for (; zeros >= 32; zeros -= 32) Write(0, 32);
-            if (zeros > 0) Write(0, zeros);
+            if (zeros > 0) Write(0, (int)zeros);
             Write((1u << lowBits) | low, lowBits + 1);
         }
 
