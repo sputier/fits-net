@@ -98,6 +98,43 @@ public class RiceDecoderTests
     }
 
     [Fact]
+    public void An_FS_code_that_no_encoder_writes_is_refused()
+    {
+        // 4-byte pixels: the 5-bit FS code holds 0 to 31 and the largest the encoder writes is 26 (fsmax + 1); 28 to 32 mean fs 27 to 31
+        foreach (int code in new[] { 28, 29, 30, 31 })
+        {
+            byte[] data = new byte[16];
+            data[4] = (byte)(code << 3);   // after the 4 bytes of the first pixel: the code in the top 5 bits
+            var e = Assert.Throws<FitsException>(() => RiceCodec.Decode(data, 10, 32, 4));
+            Assert.Contains("corrupt", e.Message);
+        }
+    }
+
+    [Fact]
+    public void Short_random_buffers_are_decoded_like_the_first_decoder_to_the_last_bit_of_the_data()
+    {
+        // the end of the data is where the refill of the window changes: codes that end exactly on the last bit, or ask for one more
+        var rng = new Random(5);
+        int decoded = 0, refused = 0;
+        for (int round = 0; round < 60_000; round++)
+        {
+            int bytePix = new[] { 1, 2, 4 }[rng.Next(3)];
+            byte[] data = new byte[rng.Next(bytePix + 1, bytePix + 14)];
+            switch (rng.Next(3))
+            {
+                case 0: rng.NextBytes(data); break;
+                case 1: for (int k = rng.Next(1, 4); k > 0; k--) data[rng.Next(data.Length)] = (byte)rng.Next(256); break;
+                default: for (int k = 0; k < data.Length; k++) data[k] = rng.Next(4) == 0 ? (byte)rng.Next(256) : (byte)0; break;
+            }
+            int count = rng.Next(1, 40), block = new[] { 1, 2, 5, 32 }[rng.Next(4)];
+            int[]? expected = Outcome(() => Reference(data, count, block, bytePix));
+            Assert.Equal(expected, Outcome(() => RiceCodec.Decode(data, count, block, bytePix)));
+            if (expected is null) refused++; else decoded++;
+        }
+        Assert.True(refused > 1000 && decoded > 1000, $"refused {refused}, decoded {decoded}");
+    }
+
+    [Fact]
     public void A_run_of_zeros_through_the_whole_data_is_refused_not_looped_on()
     {
         // the four bytes of the first pixel, then an FS code of 4 (3 + 1, in 5 bits) and nothing but zero bits: the unary code never ends

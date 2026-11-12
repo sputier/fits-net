@@ -64,7 +64,7 @@ public int DitherSeed { get; set; }
 <a id="eleris-fitsnet-compression-compressionoptions-gziplevel"></a>
 ### `GzipLevel`
 
-The zlib level of [`CompressionAlgorithm.Gzip1`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip1) and [`CompressionAlgorithm.Gzip2`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip2), 0 (stored) to 9 (smallest): -1 (default) for the default level of the runtime, which compresses well and takes its time. The files are valid at every level and are read the same way. From .NET 9 every level can be chosen: level 2 gives files about as large as cfitsio's (whose level is 6, another implementation of it) in about the same time. On .NET 8 only 0, 1 and 9 differ from the default.
+The zlib level of [`CompressionAlgorithm.Gzip1`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip1) and [`CompressionAlgorithm.Gzip2`](Eleris.FitsNet.Compression.CompressionAlgorithm.md#eleris-fitsnet-compression-compressionalgorithm-gzip2), 0 (stored) to 9 (smallest): -1 (default) for the default level of the runtime, which compresses well and takes its time. The files are valid at every level and are read the same way. From .NET 9 every level can be chosen: level 2 gives files about as large as cfitsio's (whose level is 6, another implementation of it) in about the same time. On .NET 8 only 0, 1 and 9 differ from the default. The level is ignored by the other algorithms, and by the compression of tables ([`CompressedTableOptions`](Eleris.FitsNet.Compression.CompressedTableOptions.md)), which uses the default.
 
 ```csharp
 public int GzipLevel { get; set; }
