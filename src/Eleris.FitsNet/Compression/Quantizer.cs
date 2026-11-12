@@ -72,6 +72,23 @@ internal static class Quantizer
             }
             return r;
         }
+
+        /// <summary>
+        /// The next values of the sequence, as many as there are before it starts again from another position (at most
+        /// <paramref name="max"/>): the same values as that many calls to <see cref="Take"/>, without a test for each.
+        /// </summary>
+        public ReadOnlySpan<float> TakeRun(int max)
+        {
+            int run = Math.Min(max, RandomCount - _next);
+            var values = Random.AsSpan(_next, run);
+            _next += run;
+            if (_next == RandomCount)
+            {
+                if (++_seedIndex == RandomCount) _seedIndex = 0;
+                _next = (int)(Random[_seedIndex] * 500);
+            }
+            return values;
+        }
     }
 
     /// <summary>Converts quantized integers back to floating point values.</summary>
@@ -86,14 +103,43 @@ internal static class Quantizer
     public static void Dequantize(ReadOnlySpan<int> ints, Span<double> result, double scale, double zero, int? blank, QuantizationMethod method, int tileIndex, int ditherSeed)
     {
         bool dither = UsesDither(method);
-        var state = dither ? new DitherState(tileIndex, ditherSeed) : default;
+        bool special = blank is not null || method == QuantizationMethod.SubtractiveDither2;   // values that are not quantized (NaN, an exact zero)
+        if (!dither)
+        {
+            if (special) DequantizeChecked(ints, result, scale, zero, blank, method, default, 0);
+            else for (int i = 0; i < ints.Length; i++) result[i] = ints[i] * scale + zero;
+            return;
+        }
+        var state = new DitherState(tileIndex, ditherSeed);
+        for (int start = 0; start < ints.Length;)
+        {
+            ReadOnlySpan<float> random = state.TakeRun(ints.Length - start);
+            int n = random.Length;
+            if (special)
+            {
+                DequantizeChecked(ints.Slice(start, n), result.Slice(start, n), scale, zero, blank, method, random, n);
+            }
+            else
+            {
+                ReadOnlySpan<int> source = ints.Slice(start, n);
+                Span<double> destination = result.Slice(start, n);
+                for (int j = 0; j < source.Length; j++) destination[j] = (source[j] - (double)random[j] + 0.5) * scale + zero;
+            }
+            start += n;
+        }
+    }
+
+    /// <summary>The values with a test for the null and the zero of each one (a run of the dither sequence, or none: <paramref name="count"/> 0).</summary>
+    private static void DequantizeChecked(ReadOnlySpan<int> ints, Span<double> result, double scale, double zero, int? blank, QuantizationMethod method,
+        ReadOnlySpan<float> random, int count)
+    {
+        bool dither = count > 0;
         for (int i = 0; i < ints.Length; i++)
         {
             int v = ints[i];
-            double r = dither ? state.Take() : 0;
             if (blank is { } b && v == b) result[i] = double.NaN;
             else if (method == QuantizationMethod.SubtractiveDither2 && v == ZeroValue) result[i] = 0.0;
-            else if (dither) result[i] = (v - r + 0.5) * scale + zero;
+            else if (dither) result[i] = (v - (double)random[i] + 0.5) * scale + zero;
             else result[i] = v * scale + zero;
         }
     }
@@ -110,14 +156,42 @@ internal static class Quantizer
     public static void DequantizeToSingle(ReadOnlySpan<int> ints, Span<float> result, double scale, double zero, int? blank, QuantizationMethod method, int tileIndex, int ditherSeed)
     {
         bool dither = UsesDither(method);
-        var state = dither ? new DitherState(tileIndex, ditherSeed) : default;
+        bool special = blank is not null || method == QuantizationMethod.SubtractiveDither2;   // values that are not quantized (NaN, an exact zero)
+        if (!dither)
+        {
+            if (special) DequantizeToSingleChecked(ints, result, scale, zero, blank, method, default, 0);
+            else for (int i = 0; i < ints.Length; i++) result[i] = (float)(ints[i] * scale + zero);
+            return;
+        }
+        var state = new DitherState(tileIndex, ditherSeed);
+        for (int start = 0; start < ints.Length;)
+        {
+            ReadOnlySpan<float> random = state.TakeRun(ints.Length - start);
+            int n = random.Length;
+            if (special)
+            {
+                DequantizeToSingleChecked(ints.Slice(start, n), result.Slice(start, n), scale, zero, blank, method, random, n);
+            }
+            else
+            {
+                ReadOnlySpan<int> source = ints.Slice(start, n);
+                Span<float> destination = result.Slice(start, n);
+                for (int j = 0; j < source.Length; j++) destination[j] = (float)((source[j] - (double)random[j] + 0.5) * scale + zero);
+            }
+            start += n;
+        }
+    }
+
+    private static void DequantizeToSingleChecked(ReadOnlySpan<int> ints, Span<float> result, double scale, double zero, int? blank, QuantizationMethod method,
+        ReadOnlySpan<float> random, int count)
+    {
+        bool dither = count > 0;
         for (int i = 0; i < ints.Length; i++)
         {
             int v = ints[i];
-            double r = dither ? state.Take() : 0;
             if (blank is { } b && v == b) result[i] = float.NaN;
             else if (method == QuantizationMethod.SubtractiveDither2 && v == ZeroValue) result[i] = 0f;
-            else if (dither) result[i] = (float)((v - r + 0.5) * scale + zero);
+            else if (dither) result[i] = (float)((v - (double)random[i] + 0.5) * scale + zero);
             else result[i] = (float)(v * scale + zero);
         }
     }

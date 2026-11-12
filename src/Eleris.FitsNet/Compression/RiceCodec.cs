@@ -38,57 +38,29 @@ internal static class RiceCodec
         uint mask = Mask(bytePix);
         int count = result.Length;
         if (count == 0) return;
-        bool signed16 = bytePix == 2;
+        int sign = bytePix == 2 ? 16 : 0;   // two-byte pixels come back signed: the shift pair extends the sign
 
-        int pos = 0;
-
-        uint lastpix = 0;
-        for (int k = 0; k < bytePix; k++) lastpix = (lastpix << 8) | Next(c, ref pos);
-        uint b = Next(c, ref pos);
-        int nbits = 8;
+        var reader = new BitReader(c);
+        uint lastpix = reader.Read(8 * bytePix);
 
         for (int i = 0; i < count;)
         {
-            nbits -= fsbits;
-            while (nbits < 0)
-            {
-                b = (b << 8) | Next(c, ref pos);
-                nbits += 8;
-            }
-            int fs = (int)(b >> nbits) - 1;
-            b &= (1u << nbits) - 1;
-
+            int fs = (int)reader.Read(fsbits) - 1;
+            if (fs > fsmax) throw new FitsException("The Rice compressed data is corrupt.");   // no encoder writes it (4-byte pixels: the code has room for more)
             int imax = (int)Math.Min((long)i + blockSize, count);
             if (fs < 0)
             {
                 // low entropy: all differences are zero
-                for (; i < imax; i++) result[i] = signed16 ? (short)lastpix : (int)lastpix;
+                result[i..imax].Fill(unchecked((int)(lastpix << sign)) >> sign);
+                i = imax;
             }
             else if (fs == fsmax)
             {
                 // high entropy: differences stored directly in bbits bits
                 for (; i < imax; i++)
                 {
-                    int k = bbits - nbits;
-                    uint diff = k >= 32 ? 0 : b << k;
-                    for (k -= 8; k >= 0; k -= 8)
-                    {
-                        b = Next(c, ref pos);
-                        diff |= b << k;
-                    }
-                    if (nbits > 0)
-                    {
-                        b = Next(c, ref pos);
-                        diff |= b >> -k;
-                        b &= (1u << nbits) - 1;
-                    }
-                    else
-                    {
-                        b = 0;
-                    }
-                    diff = Unmap(diff);
-                    lastpix = (diff + lastpix) & mask;
-                    result[i] = signed16 ? (short)lastpix : (int)lastpix;
+                    lastpix = (Unmap(reader.Read(bbits)) + lastpix) & mask;
+                    result[i] = unchecked((int)(lastpix << sign)) >> sign;
                 }
             }
             else
@@ -96,42 +68,127 @@ internal static class RiceCodec
                 // normal case: unary high part, fs low bits
                 for (; i < imax; i++)
                 {
-                    while (b == 0)
-                    {
-                        nbits += 8;
-                        if (nbits > 1 << 28) throw new FitsException("The Rice compressed data is corrupt.");
-                        b = Next(c, ref pos);
-                    }
-                    int nzero = nbits - (32 - BitOperations.LeadingZeroCount(b));
-                    nbits -= nzero + 1;
-                    b ^= 1u << nbits;
-                    nbits -= fs;
-                    while (nbits < 0)
-                    {
-                        b = (b << 8) | Next(c, ref pos);
-                        nbits += 8;
-                    }
-                    uint diff = ((uint)nzero << fs) | (b >> nbits);
-                    b &= (1u << nbits) - 1;
-                    diff = Unmap(diff);
-                    lastpix = (diff + lastpix) & mask;
-                    result[i] = signed16 ? (short)lastpix : (int)lastpix;
+                    lastpix = (Unmap(reader.ReadRice(fs)) + lastpix) & mask;
+                    result[i] = unchecked((int)(lastpix << sign)) >> sign;
                 }
             }
         }
     }
 
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    private static byte Next(byte[] c, ref int pos)
-    {
-        if ((uint)pos >= (uint)c.Length) ThrowTruncated();
-        return c[pos++];
-    }
-
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowTruncated() => throw new FitsException("The Rice compressed data is truncated.");
 
-    /// <summary>Undoes the zigzag mapping of signed differences.</summary>
-    private static uint Unmap(uint diff) => (diff & 1) == 0 ? diff >> 1 : ~(diff >> 1);
+    /// <summary>Undoes the zigzag mapping of signed differences (without a branch: the sign of a difference is not predictable).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static uint Unmap(uint diff) => (diff >> 1) ^ (uint)-(int)(diff & 1);
+
+    /// <summary>
+    /// MSB-first bits read through a 64-bit window that is refilled eight bytes at a time. The bits of the window below the valid ones
+    /// are either zero or the next bits of the data (a refill adds the same bits again, which changes nothing).
+    /// </summary>
+    private struct BitReader
+    {
+        private readonly byte[] _data;
+        private int _pos;
+        private ulong _acc;
+        private int _bits;   // the valid bits at the top of the window
+
+        public BitReader(byte[] data)
+        {
+            _data = data;
+            _pos = 0;
+            _acc = 0;
+            _bits = 0;
+        }
+
+        /// <summary>Tops the window up to at least 56 bits, or to the end of the data.</summary>
+        private void Refill()
+        {
+            if (_pos <= _data.Length - 8)
+            {
+                _acc |= BinaryPrimitives.ReadUInt64BigEndian(_data.AsSpan(_pos)) >> _bits;
+                int bytes = (63 - _bits) >> 3;
+                _pos += bytes;
+                _bits += bytes << 3;
+            }
+            else
+            {
+                for (; _bits <= 56 && _pos < _data.Length; _bits += 8) _acc |= (ulong)_data[_pos++] << (56 - _bits);
+            }
+        }
+
+        /// <summary>Reads <paramref name="count"/> bits (0 to 32).</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public uint Read(int count)
+        {
+            if (_bits < count)
+            {
+                Refill();
+                if (_bits < count) ThrowTruncated();
+            }
+            uint value = (uint)((_acc >> 1) >> (63 - count));   // two shifts: a count of 0 must give 0
+            _acc <<= count;
+            _bits -= count;
+            return value;
+        }
+
+        /// <summary>
+        /// Reads a Rice code: zeros up to a one (their number is the high part of the value) then <paramref name="fs"/> bits (the low part).
+        /// When the whole code is in the window, it is taken with one shift.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public uint ReadRice(int fs)
+        {
+            if (_bits < 48) Refill();
+            ulong window = _acc;
+            int zeros = BitOperations.LeadingZeroCount(window);
+            int total = zeros + 1 + fs;
+            if (total <= _bits)
+            {
+                _acc = window << total;
+                _bits -= total;
+                return ((uint)zeros << fs) | (uint)(((window << (zeros + 1)) >> 1) >> (63 - fs));
+            }
+            return ((uint)ReadUnary() << fs) | Read(fs);
+        }
+
+        /// <summary>Reads zeros up to a one, and returns the number of zeros.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int ReadUnary()
+        {
+            if (_bits < 32) Refill();
+            int zeros = BitOperations.LeadingZeroCount(_acc);
+            if (zeros < _bits)
+            {
+                _acc <<= zeros + 1;
+                _bits -= zeros + 1;
+                return zeros;
+            }
+            return ReadLongUnary();
+        }
+
+        /// <summary>A run of zeros that goes beyond the bits of the window (or the end of the data).</summary>
+        private int ReadLongUnary()
+        {
+            int zeros = 0;
+            while (true)
+            {
+                zeros += _bits;
+                _acc <<= _bits;   // a shift by 0 to 63
+                _bits = 0;
+                if (zeros > 1 << 28) throw new FitsException("The Rice compressed data is corrupt.");
+                Refill();
+                if (_bits == 0) ThrowTruncated();
+                int run = BitOperations.LeadingZeroCount(_acc);
+                if (run < _bits)
+                {
+                    _acc <<= run + 1;
+                    _bits -= run + 1;
+                    return zeros + run;
+                }
+            }
+        }
+    }
 
     /// <summary>Encodes pixels (only the low <paramref name="bytePix"/> bytes of each value are used).</summary>
     public static byte[] Encode(ReadOnlySpan<int> pixels, int blockSize, int bytePix)
