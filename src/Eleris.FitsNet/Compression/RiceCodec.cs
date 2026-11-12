@@ -1,4 +1,7 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace Eleris.FitsNet.Compression;
 
@@ -139,58 +142,167 @@ internal static class RiceCodec
         uint mask = Mask(bytePix);
         int shift = 32 - 8 * bytePix;
         if (pixels.Length == 0) return [];
-        var w = new BitWriter(Math.Min(pixels.Length * bytePix / 2 + 64, 1 << 26));
 
-        uint lastpix = (uint)pixels[0] & mask;
-        for (int k = bytePix - 1; k >= 0; k--) w.WriteByte((byte)(lastpix >> (8 * k)));
-
-        var diff = new uint[Math.Min(blockSize, pixels.Length)];
-        for (int i = 0; i < pixels.Length; i += blockSize)
+        int blockLength = Math.Min(blockSize, pixels.Length);
+        uint[]? rented = blockLength > 256 ? ArrayPool<uint>.Shared.Rent(blockLength) : null;
+        Span<uint> diff = rented is null ? stackalloc uint[blockLength] : rented.AsSpan(0, blockLength);
+        var sink = new BitSink(Math.Min(pixels.Length * bytePix / 2 + 64, 1 << 26));
+        try
         {
-            int n = Math.Min(blockSize, pixels.Length - i);
-            double pixelsum = 0;
-            for (int j = 0; j < n; j++)
-            {
-                uint next = (uint)pixels[i + j] & mask;
-                // signed difference within the pixel width, then zigzag
-                int pdiff = shift == 0 ? unchecked((int)(next - lastpix)) : unchecked((int)((next - lastpix) << shift)) >> shift;
-                diff[j] = unchecked((uint)(pdiff < 0 ? ~(pdiff << 1) : pdiff << 1)) & mask;
-                pixelsum += diff[j];
-                lastpix = next;
-            }
+            uint lastpix = (uint)pixels[0] & mask;
+            sink.Write(lastpix, 8 * bytePix);
 
-            double dpsum = (pixelsum - (n / 2) - 1) / n;
-            if (dpsum < 0) dpsum = 0;
-            uint psum = ((uint)dpsum) >> 1;
-            int fs = 0;
-            while (psum > 0)
+            for (int i = 0; i < pixels.Length; i += blockSize)
             {
-                fs++;
-                psum >>= 1;
-            }
-
-            if (fs >= fsmax)
-            {
-                w.WriteBits((uint)(fsmax + 1), fsbits);
-                for (int j = 0; j < n; j++) w.WriteBits(diff[j], bbits);
-            }
-            else if (fs == 0 && pixelsum == 0)
-            {
-                w.WriteBits(0, fsbits);
-            }
-            else
-            {
-                w.WriteBits((uint)(fs + 1), fsbits);
-                uint fsmask = (1u << fs) - 1;
-                for (int j = 0; j < n; j++)
+                int n = Math.Min(blockSize, pixels.Length - i);
+                ReadOnlySpan<int> block = pixels.Slice(i, n);
+                ulong sum = 0;
+                if (shift == 0)
                 {
-                    uint v = diff[j];
-                    w.WriteUnary((int)(v >> fs));
-                    if (fs > 0) w.WriteBits(v & fsmask, fs);
+                    for (int j = 0; j < block.Length; j++)
+                    {
+                        uint next = (uint)block[j];
+                        int d = unchecked((int)(next - lastpix));
+                        uint zigzag = unchecked((uint)((d << 1) ^ (d >> 31)));   // the signed difference mapped to 0, 1, 2, ... for 0, -1, 1, ...
+                        diff[j] = zigzag;
+                        sum += zigzag;
+                        lastpix = next;
+                    }
+                }
+                else
+                {
+                    for (int j = 0; j < block.Length; j++)
+                    {
+                        uint next = (uint)block[j] & mask;
+                        int d = unchecked((int)((next - lastpix) << shift)) >> shift;   // the difference within the width of a pixel
+                        uint zigzag = unchecked((uint)((d << 1) ^ (d >> 31))) & mask;
+                        diff[j] = zigzag;
+                        sum += zigzag;
+                        lastpix = next;
+                    }
+                }
+
+                // cfitsio sums the differences in a double: the same value as long as the sum is exact in a double (below 2^53)
+                double pixelsum = n <= 1 << 20 ? sum : SumInDouble(diff[..n]);
+                double dpsum = (pixelsum - (n / 2) - 1) / n;
+                if (dpsum < 0) dpsum = 0;
+                uint psum = ((uint)dpsum) >> 1;
+                int fs = 0;
+                while (psum > 0)
+                {
+                    fs++;
+                    psum >>= 1;
+                }
+
+                if (fs >= fsmax)
+                {
+                    sink.Reserve(((long)fsbits + (long)n * bbits + 7) / 8 + 8);
+                    sink.Write((uint)(fsmax + 1), fsbits);
+                    for (int j = 0; j < n; j++) sink.Write(diff[j], bbits);
+                }
+                else if (fs == 0 && pixelsum == 0)
+                {
+                    sink.Reserve(fsbits / 8 + 9);
+                    sink.Write(0, fsbits);
+                }
+                else
+                {
+                    // fs + 1 bits for each value, plus the quotients of the unary parts, whose total is at most the sum shifted by fs
+                    sink.Reserve(((long)fsbits + (long)n * (fs + 1) + (long)(sum >> fs) + 7) / 8 + 8);
+                    sink.Write((uint)(fs + 1), fsbits);
+                    uint high = 1u << fs, lowMask = high - 1;
+                    for (int j = 0; j < n; j++)
+                    {
+                        uint v = diff[j];
+                        int quotient = (int)(v >> fs);
+                        // the unary code of the quotient (that many zeros and a one) then the fs low bits are one number of that many bits
+                        if (quotient + 1 + fs <= 32) sink.Write(high | (v & lowMask), quotient + 1 + fs);
+                        else sink.WriteLong(quotient, fs, v & lowMask);
+                    }
                 }
             }
+            return sink.ToArray();
         }
-        return w.ToArray();
+        finally
+        {
+            sink.Release();
+            if (rented is not null) ArrayPool<uint>.Shared.Return(rented);
+        }
+    }
+
+    private static double SumInDouble(ReadOnlySpan<uint> values)
+    {
+        double sum = 0;
+        foreach (uint v in values) sum += v;
+        return sum;
+    }
+
+    /// <summary>
+    /// MSB-first bits written through a 64-bit accumulator, four bytes at a time, into a pooled buffer that the caller has made big enough
+    /// (<see cref="Reserve"/>) for what it writes before the next reservation.
+    /// </summary>
+    private struct BitSink
+    {
+        private byte[] _buffer;
+        private int _length;
+        private ulong _acc;   // the pending bits, at the top
+        private int _bits;    // how many (0 to 31 between calls)
+
+        public BitSink(int capacity) => _buffer = ArrayPool<byte>.Shared.Rent(Math.Max(64, capacity));
+
+        /// <summary>Makes room for <paramref name="bytes"/> more bytes.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Reserve(long bytes)
+        {
+            if (_length + bytes > _buffer.Length) Grow(_length + bytes);
+        }
+
+        private void Grow(long needed)
+        {
+            if (needed > Array.MaxLength) throw new OutOfMemoryException("The Rice compressed tile is too large.");
+            byte[] bigger = ArrayPool<byte>.Shared.Rent((int)Math.Max(needed, Math.Min((long)_buffer.Length * 2, Array.MaxLength)));
+            Buffer.BlockCopy(_buffer, 0, bigger, 0, _length);
+            ArrayPool<byte>.Shared.Return(_buffer);
+            _buffer = bigger;
+        }
+
+        /// <summary>Writes the low <paramref name="count"/> bits (1 to 32) of <paramref name="code"/>, which has no other bit set.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write(uint code, int count)
+        {
+            _acc |= (ulong)code << (64 - _bits - count);
+            _bits += count;
+            if (_bits >= 32)
+            {
+                BinaryPrimitives.WriteUInt32BigEndian(_buffer.AsSpan(_length), (uint)(_acc >> 32));
+                _length += 4;
+                _acc <<= 32;
+                _bits -= 32;
+            }
+        }
+
+        /// <summary>A quotient of 8 or more with its low bits can need more than 32 bits: the zeros by 32, then the one and the low bits.</summary>
+        public void WriteLong(int zeros, int lowBits, uint low)
+        {
+            for (; zeros >= 32; zeros -= 32) Write(0, 32);
+            if (zeros > 0) Write(0, zeros);
+            Write((1u << lowBits) | low, lowBits + 1);
+        }
+
+        public byte[] ToArray()
+        {
+            int tail = (_bits + 7) / 8;
+            var result = new byte[_length + tail];
+            Buffer.BlockCopy(_buffer, 0, result, 0, _length);
+            for (int i = 0; i < tail; i++) result[_length + i] = (byte)(_acc >> (56 - 8 * i));
+            return result;
+        }
+
+        public void Release()
+        {
+            if (_buffer is not null) ArrayPool<byte>.Shared.Return(_buffer);
+            _buffer = null!;
+        }
     }
 }
 
