@@ -682,7 +682,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
                         else
                         {
                             Volatile.Write(ref anyFallbackFlag, 1); // not quantizable: store the floats losslessly
-                            gzipRows[t] = GzipCodec.Compress(TileBytes());
+                            gzipRows[t] = GzipCodec.Compress(TileBytes(), options.GzipLevel);
                         }
                     }
                     finally
@@ -693,12 +693,12 @@ public sealed class CompressedImageHdu : BinaryTableHdu
                 }
                 else
                 {
-                    rows[t] = EncodeRaw(algo, TileBytes(), elementSize);
+                    rows[t] = EncodeRaw(algo, TileBytes(), elementSize, options.GzipLevel);
                 }
             }
             else if (algo is CompressionAlgorithm.Gzip1 or CompressionAlgorithm.Gzip2 or CompressionAlgorithm.NoCompress)
             {
-                rows[t] = EncodeRaw(algo, TileBytes(), elementSize);
+                rows[t] = EncodeRaw(algo, TileBytes(), elementSize, options.GzipLevel);
             }
             else
             {
@@ -883,10 +883,10 @@ public sealed class CompressedImageHdu : BinaryTableHdu
         _ => "NOCOMPRESS",
     };
 
-    private static byte[] EncodeRaw(CompressionAlgorithm algo, byte[] bigEndian, int elementSize) => algo switch
+    private static byte[] EncodeRaw(CompressionAlgorithm algo, byte[] bigEndian, int elementSize, int gzipLevel) => algo switch
     {
-        CompressionAlgorithm.Gzip1 => GzipCodec.Compress(bigEndian),
-        CompressionAlgorithm.Gzip2 => GzipCodec.Compress(GzipCodec.Shuffle(bigEndian, elementSize)),
+        CompressionAlgorithm.Gzip1 => GzipCodec.Compress(bigEndian, gzipLevel),
+        CompressionAlgorithm.Gzip2 => GzipCodec.Compress(GzipCodec.Shuffle(bigEndian, elementSize), gzipLevel),
         _ => bigEndian,
     };
 
@@ -921,7 +921,7 @@ public sealed class CompressedImageHdu : BinaryTableHdu
                 for (int i = 0; i < ints.Length; i++)
                     for (int b = 0; b < elementSize; b++)
                         bytes[i * elementSize + b] = (byte)(ints[i] >> (8 * (elementSize - 1 - b)));
-                rows[tile] = EncodeRaw(o.Algorithm, bytes, elementSize);
+                rows[tile] = EncodeRaw(o.Algorithm, bytes, elementSize, o.GzipLevel);
                 break;
             }
         }

@@ -363,13 +363,13 @@ internal static class RiceCodec
     }
 }
 
-/// <summary>MSB-first bit writer with a 64-bit accumulator and a growing byte buffer.</summary>
+/// <summary>MSB-first bit writer: a 64-bit accumulator that is written four bytes at a time into a growing byte buffer.</summary>
 internal sealed class BitWriter
 {
     private byte[] _buffer;
     private int _length;
-    private ulong _acc;   // the pending bits, right aligned
-    private int _pending; // number of pending bits (0-7 between calls)
+    private ulong _acc;   // the pending bits, at the top
+    private int _bits;    // how many (0 to 31 between calls)
 
     public BitWriter(int capacity = 1024) => _buffer = new byte[Math.Max(16, capacity)];
 
@@ -379,23 +379,28 @@ internal sealed class BitWriter
         Array.Resize(ref _buffer, (int)Math.Min(size, Array.MaxLength));
     }
 
-    private void Append(byte b)
+    /// <summary>Writes the whole bytes of the accumulator, so that the buffer holds everything but the last bits (fewer than 8).</summary>
+    private void FlushBytes()
     {
-        if (_length == _buffer.Length) Grow(_length + 1);
-        _buffer[_length++] = b;
+        int bytes = _bits >> 3;
+        if (_length + bytes > _buffer.Length) Grow(_length + bytes);
+        for (int i = 0; i < bytes; i++) _buffer[_length++] = (byte)(_acc >> (56 - 8 * i));
+        _acc <<= bytes << 3;
+        _bits &= 7;
     }
 
     /// <summary>Writes a whole byte; the writer must be on a byte boundary.</summary>
     public void WriteByte(byte value)
     {
-        if (_pending != 0) throw new InvalidOperationException("Bytes can only be written on a byte boundary.");
-        Append(value);
+        if ((_bits & 7) != 0) throw new InvalidOperationException("Bytes can only be written on a byte boundary.");
+        WriteBits(value, 8);
     }
 
     /// <summary>Writes whole bytes; the writer must be on a byte boundary.</summary>
     public void WriteBytes(ReadOnlySpan<byte> bytes)
     {
-        if (_pending != 0) throw new InvalidOperationException("Bytes can only be written on a byte boundary.");
+        if ((_bits & 7) != 0) throw new InvalidOperationException("Bytes can only be written on a byte boundary.");
+        FlushBytes();
         if (_length + bytes.Length > _buffer.Length) Grow(_length + bytes.Length);
         bytes.CopyTo(_buffer.AsSpan(_length));
         _length += bytes.Length;
@@ -404,17 +409,20 @@ internal sealed class BitWriter
     public void WriteBit(bool one) => WriteBits(one ? 1u : 0u, 1);
 
     /// <summary>Writes the low <paramref name="count"/> bits of <paramref name="value"/> (count 0-32).</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public void WriteBits(uint value, int count)
     {
         if (count == 0) return;
-        _acc = (_acc << count) | (value & (uint)((1UL << count) - 1));
-        _pending += count;
-        while (_pending >= 8)
+        _acc |= (ulong)(value & (uint)((1UL << count) - 1)) << (64 - _bits - count);
+        _bits += count;
+        if (_bits >= 32)
         {
-            _pending -= 8;
-            Append((byte)(_acc >> _pending));
+            if (_length + 4 > _buffer.Length) Grow(_length + 4);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(_buffer.AsSpan(_length), (uint)(_acc >> 32));
+            _length += 4;
+            _acc <<= 32;
+            _bits -= 32;
         }
-        _acc &= (1UL << _pending) - 1;
     }
 
     /// <summary>Writes <paramref name="zeros"/> zero bits followed by a one bit.</summary>
@@ -431,14 +439,15 @@ internal sealed class BitWriter
     /// <summary>Pads the current byte with zero bits.</summary>
     public void AlignToByte()
     {
-        if (_pending > 0) WriteBits(0, 8 - _pending);
+        if ((_bits & 7) != 0) WriteBits(0, 8 - (_bits & 7));
     }
 
     public byte[] ToArray()
     {
-        var result = new byte[_length + (_pending > 0 ? 1 : 0)];
+        int tail = (_bits + 7) >> 3;
+        var result = new byte[_length + tail];
         Array.Copy(_buffer, result, _length);
-        if (_pending > 0) result[^1] = (byte)(_acc << (8 - _pending));
+        for (int i = 0; i < tail; i++) result[_length + i] = (byte)(_acc >> (56 - 8 * i));
         return result;
     }
 }

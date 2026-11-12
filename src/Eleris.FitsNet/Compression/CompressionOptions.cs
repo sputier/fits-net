@@ -61,11 +61,20 @@ public sealed class CompressionOptions
     /// <summary>Seed of the dithering sequence, 1 to 10000 (ZDITHER0).</summary>
     public int DitherSeed { get; set; } = 1;
 
+    /// <summary>
+    /// The zlib level of <see cref="CompressionAlgorithm.Gzip1"/> and <see cref="CompressionAlgorithm.Gzip2"/>, 0 (stored) to 9 (smallest):
+    /// -1 (default) for the default level of the runtime, which compresses well and takes its time. The files are valid at every level
+    /// and are read the same way. From .NET 9 every level can be chosen: level 2 gives files about as large as cfitsio's (whose level is
+    /// 6, another implementation of it) in about the same time. On .NET 8 only 0, 1 and 9 differ from the default.
+    /// </summary>
+    public int GzipLevel { get; set; } = -1;
+
     internal void Validate()
     {
         if (MaxDegreeOfParallelism == 0 || MaxDegreeOfParallelism < -1)
             throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), "Use -1 (all cores) or a positive number.");
         if (RiceBlockSize < 1) throw new ArgumentException("The Rice block size must be positive.");
+        if (GzipLevel is < -1 or > 9) throw new ArgumentOutOfRangeException(nameof(GzipLevel), "Use -1 (the default) or a level from 0 to 9.");
         if (DitherSeed is < 1 or > Quantizer.RandomCount) throw new ArgumentException("The dither seed must be between 1 and 10000.");
         if (QuantizeLevel == 0 && Quantization != QuantizationMethod.None) throw new ArgumentException("QuantizeLevel must not be 0.");
         if (TileShape is { } t && t.Any(x => x < 1)) throw new ArgumentException("Tile dimensions must be positive.");

@@ -39,10 +39,23 @@ internal static class GzipCodec
         }
     }
 
-    public static byte[] Compress(ReadOnlySpan<byte> data)
+    /// <summary>The level used when none is asked for (<see cref="CompressionOptions.GzipLevel"/> -1).</summary>
+    public const int DefaultLevel = -1;
+
+    /// <param name="data">The bytes to compress.</param>
+    /// <param name="level">The zlib level 0 to 9, or <see cref="DefaultLevel"/> for the default of the runtime.</param>
+    public static byte[] Compress(ReadOnlySpan<byte> data, int level = DefaultLevel)
     {
         using var output = new MemoryStream();
-        using (var gz = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true)) gz.Write(data);
+#if NET9_0_OR_GREATER
+        using (var gz = level < 0
+            ? new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true)
+            : new GZipStream(output, new ZLibCompressionOptions { CompressionLevel = level }, leaveOpen: true))
+#else
+        // before .NET 9 the levels are not selectable one by one: 0 stores, 1 is the fastest, 9 the smallest, the others are the default
+        using (var gz = new GZipStream(output, level switch { 0 => CompressionLevel.NoCompression, 1 => CompressionLevel.Fastest, 9 => CompressionLevel.SmallestSize, _ => CompressionLevel.Optimal }, leaveOpen: true))
+#endif
+            gz.Write(data);
         return output.ToArray();
     }
 
