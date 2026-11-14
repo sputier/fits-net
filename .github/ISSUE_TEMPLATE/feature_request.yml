@@ -1,0 +1,27 @@
+name: Feature request
+description: Something the library does not do yet
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Look at the [coverage of the standard](https://github.com/sputier/fits-net/blob/main/docs/standard-coverage.md) first: the
+        parts of FITS 4.0 that are not supported yet are listed there.
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The task, not the solution. A file or a use case helps.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How you imagine it
+      description: Optional. A sketch of the code you would like to write.
+      render: csharp
+  - type: textarea
+    id: other
+    attributes:
+      label: What does it elsewhere
+      description: Optional. How astropy, cfitsio or another library does it.
